@@ -1,0 +1,239 @@
+/**
+ * Authentication Service
+ * Handles user authentication, registration, and session management
+ */
+
+import { apiClient, ApiResponse } from '../api';
+
+export interface User {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role?: 'customer' | 'merchant' | 'admin' | 'employee';
+  isActive: boolean;
+  emailVerified: boolean;
+  phoneVerified?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  role?: 'customer' | 'merchant';
+}
+
+export interface LoginResponse {
+  user: User;
+  tokens: {
+    accessToken: string;
+    refreshToken: string;
+  };
+}
+
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  password: string;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface UpdateProfileRequest {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+}
+
+export class AuthService {
+  /**
+   * Login user with email and password
+   */
+  async login(credentials: LoginRequest): Promise<LoginResponse> {
+    try {
+      console.log('🔐 AuthService.login called with:', { email: credentials.email });
+
+      // Use production login endpoint
+      console.log('📡 Making API call to /auth/login');
+      const response = await apiClient.post<LoginResponse>('/auth/login', credentials);
+
+      console.log('📨 API response received:', response);
+
+      // Store tokens if login successful
+      if (response?.tokens) {
+        console.log('💾 Storing tokens');
+        this.storeTokens(response.tokens);
+      } else {
+        console.log('⚠️ No tokens in response');
+      }
+
+      return response;
+    } catch (error) {
+      console.error('💥 AuthService login error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Register new user
+   */
+  async register(userData: RegisterRequest): Promise<LoginResponse> {
+    try {
+      // Use production register endpoint
+      const response = await apiClient.post<LoginResponse>('/auth/register', userData);
+
+      // Store tokens if registration successful
+      if (response?.tokens) {
+        this.storeTokens(response.tokens);
+      }
+
+      return response;
+    } catch (error) {
+      console.error('Registration error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Store authentication tokens
+   */
+  private storeTokens(tokens: { accessToken: string; refreshToken: string; expiresIn?: number }) {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('eliteepay_token', tokens.accessToken);
+      localStorage.setItem('eliteepay_refresh_token', tokens.refreshToken);
+      if (tokens.expiresIn) {
+        localStorage.setItem('eliteepay_token_expires', (Date.now() + tokens.expiresIn * 1000).toString());
+      }
+    }
+  }
+
+  /**
+   * Logout current user
+   */
+  async logout(): Promise<void> {
+    return apiClient.logout();
+  }
+
+  /**
+   * Refresh authentication token
+   */
+  async refreshToken(): Promise<string | null> {
+    return apiClient.refreshToken();
+  }
+
+  /**
+   * Get current user profile
+   */
+  async getCurrentUser(): Promise<User> {
+    return apiClient.get<User>('/auth/profile');
+  }
+
+  /**
+   * Update user profile
+   */
+  async updateProfile(updates: UpdateProfileRequest): Promise<User> {
+    return apiClient.put<User>('/auth/profile', updates);
+  }
+
+  /**
+   * Change user password
+   */
+  async changePassword(passwordData: ChangePasswordRequest): Promise<void> {
+    return apiClient.post<void>('/auth/change-password', passwordData);
+  }
+
+  /**
+   * Request password reset
+   */
+  async forgotPassword(request: ForgotPasswordRequest): Promise<void> {
+    return apiClient.post<void>('/auth/forgot-password', request);
+  }
+
+  /**
+   * Reset password with token
+   */
+  async resetPassword(request: ResetPasswordRequest): Promise<void> {
+    return apiClient.post<void>('/auth/reset-password', request);
+  }
+
+  /**
+   * Verify email address
+   */
+  async verifyEmail(token: string): Promise<void> {
+    return apiClient.post<void>('/auth/verify-email', { token });
+  }
+
+  /**
+   * Resend email verification
+   */
+  async resendVerification(): Promise<void> {
+    return apiClient.post<void>('/auth/resend-verification');
+  }
+
+  /**
+   * Check if user is authenticated
+   */
+  isAuthenticated(): boolean {
+    return apiClient.isAuthenticated();
+  }
+
+  /**
+   * Get stored user data
+   */
+  getStoredUser(): User | null {
+    return apiClient.getCurrentUser();
+  }
+
+  /**
+   * Check if user has specific role
+   */
+  hasRole(role: string): boolean {
+    const user = this.getStoredUser();
+    return user?.role === role;
+  }
+
+  /**
+   * Check if user is admin
+   */
+  isAdmin(): boolean {
+    return this.hasRole('admin');
+  }
+
+  /**
+   * Check if user is merchant
+   */
+  isMerchant(): boolean {
+    return this.hasRole('merchant');
+  }
+
+  /**
+   * Check if user is customer
+   */
+  isCustomer(): boolean {
+    return this.hasRole('customer');
+  }
+
+  /**
+   * Check if user is employee
+   */
+  isEmployee(): boolean {
+    return this.hasRole('employee');
+  }
+}
+
+// Export singleton instance
+export const authService = new AuthService();

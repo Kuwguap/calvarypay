@@ -1,0 +1,215 @@
+import { Router, Request, Response, RequestHandler } from 'express';
+import { logger, redisService } from '@eliteepay/shared';
+import { config } from '../config';
+import axios from 'axios';
+
+const router = Router();
+
+interface HealthRequest extends Request {
+  correlationId: string;
+}
+
+// Basic health check
+router.get('/', async (req: Request, res: Response) => {
+  const healthRequest = req as HealthRequest;
+  try {
+    const healthStatus = {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      service: config.name,
+      version: config.version,
+      environment: config.environment,
+      uptime: process.uptime(),
+      dependencies: {} as any
+    };
+
+    res.json({
+      success: true,
+      data: healthStatus,
+      error: null,
+      meta: {
+        correlationId: healthRequest.correlationId,
+        timestamp: new Date().toISOString(),
+        service: config.name
+      }
+    });
+  } catch (error) {
+    logger.error('Health check failed', {
+      correlationId: healthRequest.correlationId,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+
+    res.status(503).json({
+      success: false,
+      data: null,
+      error: {
+        code: 'HEALTH_CHECK_FAILED',
+        message: 'Service health check failed'
+      },
+      meta: {
+        correlationId: healthRequest.correlationId,
+        timestamp: new Date().toISOString(),
+        service: config.name
+      }
+    });
+  }
+});
+
+// Detailed health check with dependencies
+router.get('/detailed', async (req: Request, res: Response) => {
+  const healthRequest = req as HealthRequest;
+  try {
+    const startTime = Date.now();
+    const dependencies: any = {};
+
+    // Check Redis connection
+    try {
+      const redisStart = Date.now();
+      await redisService.ping();
+      dependencies.redis = {
+        status: 'healthy',
+        responseTime: Date.now() - redisStart
+      };
+    } catch (error) {
+      dependencies.redis = {
+        status: 'unhealthy',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+
+    // Check downstream services
+    const serviceChecks = Object.entries(config.services).map(async ([serviceName, serviceConfig]) => {
+      try {
+        const serviceStart = Date.now();
+        const response = await axios.get(`${serviceConfig.url}/health`, {
+          timeout: 5000,
+          headers: {
+            'X-Correlation-ID': healthRequest.correlationId
+          }
+        });
+
+        dependencies[serviceName] = {
+          status: 'healthy',
+          responseTime: Date.now() - serviceStart,
+          version: response.data?.data?.version || 'unknown'
+        };
+      } catch (error) {
+        dependencies[serviceName] = {
+          status: 'unhealthy',
+          error: error instanceof Error ? error.message : 'Unknown error'
+        };
+      }
+    });
+
+    await Promise.all(serviceChecks);
+
+    // Determine overall status
+    const hasUnhealthyDependencies = Object.values(dependencies).some(
+      (dep: any) => dep.status === 'unhealthy'
+    );
+
+    const overallStatus = hasUnhealthyDependencies ? 'degraded' : 'healthy';
+    const statusCode = overallStatus === 'healthy' ? 200 : 503;
+
+    const healthStatus = {
+      status: overallStatus,
+      timestamp: new Date().toISOString(),
+      service: config.name,
+      version: config.version,
+      environment: config.environment,
+      uptime: process.uptime(),
+      responseTime: Date.now() - startTime,
+      dependencies
+    };
+
+    res.status(statusCode).json({
+      success: overallStatus === 'healthy',
+      data: healthStatus,
+      error: null,
+      meta: {
+        correlationId: healthRequest.correlationId,
+        timestamp: new Date().toISOString(),
+        service: config.name
+      }
+    });
+  } catch (error) {
+    logger.error('Detailed health check failed', {
+      correlationId: healthRequest.correlationId,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+
+    res.status(503).json({
+      success: false,
+      data: null,
+      error: {
+        code: 'HEALTH_CHECK_FAILED',
+        message: 'Detailed health check failed'
+      },
+      meta: {
+        correlationId: healthRequest.correlationId,
+        timestamp: new Date().toISOString(),
+        service: config.name
+      }
+    });
+  }
+});
+
+// Readiness probe
+router.get('/ready', async (req: Request, res: Response) => {
+  const healthRequest = req as HealthRequest;
+  try {
+    // Check if essential dependencies are available
+    await redisService.ping();
+
+    res.json({
+      success: true,
+      data: {
+        status: 'ready',
+        timestamp: new Date().toISOString(),
+        service: config.name
+      },
+      error: null,
+      meta: {
+        correlationId: healthRequest.correlationId,
+        timestamp: new Date().toISOString(),
+        service: config.name
+      }
+    });
+  } catch (error) {
+    res.status(503).json({
+      success: false,
+      data: null,
+      error: {
+        code: 'NOT_READY',
+        message: 'Service is not ready'
+      },
+      meta: {
+        correlationId: healthRequest.correlationId,
+        timestamp: new Date().toISOString(),
+        service: config.name
+      }
+    });
+  }
+});
+
+// Liveness probe
+router.get('/live', (req: Request, res: Response) => {
+  const healthRequest = req as HealthRequest;
+  res.json({
+    success: true,
+    data: {
+      status: 'alive',
+      timestamp: new Date().toISOString(),
+      service: config.name,
+      uptime: process.uptime()
+    },
+    error: null,
+    meta: {
+      correlationId: healthRequest.correlationId,
+      timestamp: new Date().toISOString(),
+      service: config.name
+    }
+  });
+});
+
+export { router as healthRoutes };

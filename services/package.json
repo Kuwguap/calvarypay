@@ -1,0 +1,16 @@
+{
+  "name": "services",
+  "version": "1.0.0",
+  "description": "A production-ready microservices architecture for payment processing with comprehensive audit logging, user management, and API gateway.",
+  "main": "test-logbook-integration.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.11.0",
+    "form-data": "^4.0.4"
+  }
+}

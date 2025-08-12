@@ -1,0 +1,483 @@
+// Digital Logbook and Reconciliation Flow - Pseudocode
+// This file contains the pseudocode for logbook management and reconciliation processes
+
+// ========================================
+// LOGBOOK ENTRY CREATION FLOW
+// ========================================
+
+FUNCTION createLogbookEntry(entryData, userId):
+    BEGIN
+        correlationId = generateCorrelationId()
+        
+        // Step 1: Validate Input Data
+        IF NOT validateLogbookEntry(entryData) THEN
+            RETURN error(400, "VALIDATION_ERROR", "Invalid logbook entry data")
+        END IF
+        
+        // Step 2: Check User Permissions
+        user = database.findUserById(userId)
+        IF NOT user EXISTS OR NOT user.is_active THEN
+            RETURN error(403, "ACCESS_DENIED", "User not authorized")
+        END IF
+        
+        // Step 3: Process Photo Upload (if provided)
+        photoUrl = NULL
+        IF entryData.photo EXISTS THEN
+            TRY
+                photoUrl = storageService.uploadPhoto(entryData.photo, {
+                    folder: "logbook-entries",
+                    user_id: userId,
+                    max_size: 5_MB,
+                    allowed_types: ["image/jpeg", "image/png", "image/webp"]
+                })
+            CATCH StorageError as e
+                RETURN error(400, "PHOTO_UPLOAD_ERROR", "Failed to upload photo")
+            END TRY
+        END IF
+        
+        // Step 4: Create Logbook Entry
+        entryId = generateUUID()
+        
+        TRY
+            logbookEntry = database.createLogbookEntry({
+                id: entryId,
+                user_id: userId,
+                type: entryData.type,
+                amount_minor: convertToMinorUnits(entryData.amount, entryData.currency),
+                currency: entryData.currency,
+                note: entryData.note,
+                photo_url: photoUrl,
+                location: entryData.location,
+                is_reconciled: false,
+                reconciled_transaction_id: NULL,
+                created_at: NOW(),
+                updated_at: NOW()
+            })
+        CATCH DatabaseError as e
+            // Clean up uploaded photo if database insert fails
+            IF photoUrl IS NOT NULL THEN
+                storageService.deletePhoto(photoUrl)
+            END IF
+            RETURN error(500, "DATABASE_ERROR", "Failed to create logbook entry")
+        END TRY
+        
+        // Step 5: Publish Logbook Created Event
+        eventBus.publish("logbook.created", {
+            entry_id: entryId,
+            user_id: userId,
+            type: entryData.type,
+            amount: entryData.amount,
+            currency: entryData.currency,
+            correlation_id: correlationId
+        })
+        
+        // Step 6: Queue Automatic Reconciliation Check
+        queue.publishJob("reconciliation.jobs", "reconciliation.auto_match", {
+            logbook_entry_id: entryId,
+            user_id: userId,
+            amount: entryData.amount,
+            currency: entryData.currency,
+            timestamp: NOW(),
+            type: entryData.type
+        }, { delay: 30000 }) // 30 second delay to allow for transaction processing
+        
+        // Step 7: Log Audit Event
+        auditLogger.log({
+            event_type: "logbook.created",
+            actor_user_id: userId,
+            payload: {
+                entry_id: entryId,
+                type: entryData.type,
+                amount: entryData.amount,
+                currency: entryData.currency,
+                has_photo: photoUrl IS NOT NULL,
+                has_location: entryData.location IS NOT NULL
+            },
+            correlation_id: correlationId
+        })
+        
+        // Step 8: Return Created Entry
+        RETURN success({
+            id: entryId,
+            type: entryData.type,
+            amount: entryData.amount,
+            currency: entryData.currency,
+            note: entryData.note,
+            photo_url: photoUrl,
+            location: entryData.location,
+            is_reconciled: false,
+            created_at: logbookEntry.created_at
+        })
+    END
+
+// ========================================
+// OFFLINE SYNC PROCESSING
+// ========================================
+
+FUNCTION syncOfflineEntries(offlineEntries, userId):
+    BEGIN
+        correlationId = generateCorrelationId()
+        syncResults = []
+        
+        // Step 1: Validate User
+        user = database.findUserById(userId)
+        IF NOT user EXISTS OR NOT user.is_active THEN
+            RETURN error(403, "ACCESS_DENIED", "User not authorized")
+        END IF
+        
+        // Step 2: Process Each Offline Entry
+        FOR EACH entry IN offlineEntries DO
+            TRY
+                // Check if entry already exists (by client-side ID)
+                IF entry.client_id EXISTS THEN
+                    existingEntry = database.findLogbookEntryByClientId(entry.client_id, userId)
+                    IF existingEntry EXISTS THEN
+                        syncResults.push({
+                            client_id: entry.client_id,
+                            status: "duplicate",
+                            server_id: existingEntry.id
+                        })
+                        CONTINUE
+                    END IF
+                END IF
+                
+                // Create the entry
+                result = CALL createLogbookEntry(entry, userId)
+                IF result.success THEN
+                    syncResults.push({
+                        client_id: entry.client_id,
+                        status: "synced",
+                        server_id: result.data.id
+                    })
+                ELSE
+                    syncResults.push({
+                        client_id: entry.client_id,
+                        status: "failed",
+                        error: result.error.message
+                    })
+                END IF
+                
+            CATCH Exception as e
+                syncResults.push({
+                    client_id: entry.client_id,
+                    status: "failed",
+                    error: e.message
+                })
+            END TRY
+        END FOR
+        
+        // Step 3: Log Sync Event
+        auditLogger.log({
+            event_type: "logbook.offline_sync",
+            actor_user_id: userId,
+            payload: {
+                total_entries: offlineEntries.length,
+                synced_count: syncResults.filter(r => r.status === "synced").length,
+                failed_count: syncResults.filter(r => r.status === "failed").length,
+                duplicate_count: syncResults.filter(r => r.status === "duplicate").length
+            },
+            correlation_id: correlationId
+        })
+        
+        // Step 4: Return Sync Results
+        RETURN success({
+            sync_results: syncResults,
+            total_processed: offlineEntries.length,
+            correlation_id: correlationId
+        })
+    END
+
+// ========================================
+// AUTOMATIC RECONCILIATION FLOW
+// ========================================
+
+FUNCTION performAutoReconciliation(logbookEntryId):
+    BEGIN
+        correlationId = generateCorrelationId()
+        
+        // Step 1: Get Logbook Entry
+        logbookEntry = database.findLogbookEntryById(logbookEntryId)
+        IF NOT logbookEntry EXISTS OR logbookEntry.is_reconciled THEN
+            RETURN // Entry doesn't exist or already reconciled
+        END IF
+        
+        // Step 2: Find Potential Transaction Matches
+        potentialMatches = database.findUnreconciledTransactions({
+            user_id: logbookEntry.user_id,
+            currency: logbookEntry.currency,
+            time_window_start: logbookEntry.created_at - 10_MINUTES,
+            time_window_end: logbookEntry.created_at + 10_MINUTES
+        })
+        
+        // Step 3: Apply Matching Algorithm
+        bestMatch = NULL
+        bestScore = 0
+        
+        FOR EACH transaction IN potentialMatches DO
+            score = calculateMatchScore(logbookEntry, transaction)
+            IF score > bestScore AND score >= MINIMUM_MATCH_SCORE THEN
+                bestScore = score
+                bestMatch = transaction
+            END IF
+        END FOR
+        
+        // Step 4: Process Match if Found
+        IF bestMatch IS NOT NULL THEN
+            TRY
+                // Update logbook entry
+                database.updateLogbookEntry(logbookEntryId, {
+                    is_reconciled: true,
+                    reconciled_transaction_id: bestMatch.id,
+                    updated_at: NOW()
+                })
+                
+                // Update transaction
+                database.updateTransaction(bestMatch.id, {
+                    metadata: mergeMetadata(bestMatch.metadata, {
+                        reconciled_logbook_entry_id: logbookEntryId,
+                        reconciliation_score: bestScore,
+                        reconciliation_type: "automatic"
+                    }),
+                    updated_at: NOW()
+                })
+                
+                // Publish reconciliation event
+                eventBus.publish("reconciliation.matched", {
+                    logbook_entry_id: logbookEntryId,
+                    transaction_id: bestMatch.id,
+                    user_id: logbookEntry.user_id,
+                    match_score: bestScore,
+                    reconciliation_type: "automatic",
+                    correlation_id: correlationId
+                })
+                
+                // Log audit event
+                auditLogger.log({
+                    event_type: "reconciliation.auto_matched",
+                    actor_user_id: logbookEntry.user_id,
+                    payload: {
+                        logbook_entry_id: logbookEntryId,
+                        transaction_id: bestMatch.id,
+                        match_score: bestScore,
+                        amount_difference: Math.abs(logbookEntry.amount_minor - bestMatch.amount_minor)
+                    },
+                    correlation_id: correlationId
+                })
+                
+            CATCH DatabaseError as e
+                // Log error but don't fail
+                auditLogger.log({
+                    event_type: "reconciliation.auto_match_failed",
+                    actor_user_id: logbookEntry.user_id,
+                    payload: {
+                        logbook_entry_id: logbookEntryId,
+                        transaction_id: bestMatch.id,
+                        error: e.message
+                    },
+                    correlation_id: correlationId
+                })
+            END TRY
+        END IF
+    END
+
+// ========================================
+// RECONCILIATION MATCHING ALGORITHM
+// ========================================
+
+FUNCTION calculateMatchScore(logbookEntry, transaction):
+    BEGIN
+        score = 0
+        maxScore = 100
+        
+        // Step 1: Exact Amount Match (40 points)
+        IF logbookEntry.amount_minor === transaction.amount_minor THEN
+            score += 40
+        ELSE
+            // Partial points for close amounts
+            amountDifference = Math.abs(logbookEntry.amount_minor - transaction.amount_minor)
+            amountTolerance = Math.max(
+                logbookEntry.amount_minor * 0.05, // 5% tolerance
+                1000 // Minimum 10.00 tolerance (in minor units)
+            )
+            
+            IF amountDifference <= amountTolerance THEN
+                proximityScore = 40 * (1 - (amountDifference / amountTolerance))
+                score += proximityScore
+            END IF
+        END IF
+        
+        // Step 2: Time Proximity (30 points)
+        timeDifference = Math.abs(
+            logbookEntry.created_at.getTime() - transaction.created_at.getTime()
+        )
+        maxTimeWindow = 10 * 60 * 1000 // 10 minutes in milliseconds
+        
+        IF timeDifference <= maxTimeWindow THEN
+            timeScore = 30 * (1 - (timeDifference / maxTimeWindow))
+            score += timeScore
+        END IF
+        
+        // Step 3: Currency Match (20 points)
+        IF logbookEntry.currency === transaction.currency THEN
+            score += 20
+        END IF
+        
+        // Step 4: Transaction Type Compatibility (10 points)
+        IF isCompatibleTransactionType(logbookEntry.type, transaction) THEN
+            score += 10
+        END IF
+        
+        RETURN Math.round(score)
+    END
+
+// ========================================
+// SCHEDULED RECONCILIATION REPORT
+// ========================================
+
+FUNCTION generateReconciliationReport(reportDate):
+    BEGIN
+        correlationId = generateCorrelationId()
+        
+        // Step 1: Get Date Range
+        startDate = reportDate + " 00:00:00"
+        endDate = reportDate + " 23:59:59"
+        
+        // Step 2: Get All Transactions for Date
+        transactions = database.findTransactionsByDateRange(startDate, endDate)
+        logbookEntries = database.findLogbookEntriesByDateRange(startDate, endDate)
+        
+        // Step 3: Calculate Statistics
+        totalTransactions = transactions.length
+        matchedTransactions = transactions.filter(t => 
+            t.metadata.reconciled_logbook_entry_id IS NOT NULL
+        ).length
+        unmatchedTransactions = totalTransactions - matchedTransactions
+        
+        totalLogbookEntries = logbookEntries.length
+        matchedLogbookEntries = logbookEntries.filter(e => e.is_reconciled).length
+        unmatchedLogbookEntries = totalLogbookEntries - matchedLogbookEntries
+        
+        totalAmount = transactions.reduce((sum, t) => sum + t.amount_minor, 0)
+        
+        // Step 4: Identify Discrepancies
+        discrepancies = []
+        
+        // Find unmatched transactions
+        FOR EACH transaction IN transactions DO
+            IF transaction.metadata.reconciled_logbook_entry_id IS NULL THEN
+                discrepancies.push({
+                    type: "unmatched_transaction",
+                    transaction_id: transaction.id,
+                    amount: convertFromMinorUnits(transaction.amount_minor, transaction.currency),
+                    currency: transaction.currency,
+                    description: "Transaction without matching logbook entry"
+                })
+            END IF
+        END FOR
+        
+        // Find unmatched logbook entries
+        FOR EACH entry IN logbookEntries DO
+            IF NOT entry.is_reconciled THEN
+                discrepancies.push({
+                    type: "unmatched_logbook",
+                    logbook_entry_id: entry.id,
+                    amount: convertFromMinorUnits(entry.amount_minor, entry.currency),
+                    currency: entry.currency,
+                    description: "Logbook entry without matching transaction"
+                })
+            END IF
+        END FOR
+        
+        // Step 5: Create Report Record
+        reportId = generateUUID()
+        
+        report = database.createReconciliationReport({
+            id: reportId,
+            report_date: reportDate,
+            total_transactions: totalTransactions,
+            matched_transactions: matchedTransactions,
+            unmatched_transactions: unmatchedTransactions,
+            total_logbook_entries: totalLogbookEntries,
+            matched_logbook_entries: matchedLogbookEntries,
+            unmatched_logbook_entries: unmatchedLogbookEntries,
+            total_amount_minor: totalAmount,
+            discrepancies: discrepancies,
+            generated_by: "system",
+            generated_at: NOW()
+        })
+        
+        // Step 6: Publish Report Event
+        eventBus.publish("reconciliation.report_generated", {
+            report_id: reportId,
+            report_date: reportDate,
+            total_discrepancies: discrepancies.length,
+            correlation_id: correlationId
+        })
+        
+        // Step 7: Queue Admin Notification if Discrepancies Found
+        IF discrepancies.length > 0 THEN
+            queue.publishJob("reconciliation.jobs", "reconciliation.notify_admin", {
+                report_id: reportId,
+                report_date: reportDate,
+                discrepancy_count: discrepancies.length,
+                total_amount: convertFromMinorUnits(totalAmount, "NGN")
+            })
+        END IF
+        
+        // Step 8: Log Audit Event
+        auditLogger.log({
+            event_type: "reconciliation.report_generated",
+            payload: {
+                report_id: reportId,
+                report_date: reportDate,
+                total_transactions: totalTransactions,
+                matched_transactions: matchedTransactions,
+                total_discrepancies: discrepancies.length
+            },
+            correlation_id: correlationId
+        })
+        
+        RETURN report
+    END
+
+// ========================================
+// HELPER FUNCTIONS
+// ========================================
+
+FUNCTION validateLogbookEntry(entryData):
+    RETURN (
+        entryData.type IN ["fuel", "cash", "misc"] AND
+        entryData.amount > 0 AND
+        entryData.amount <= MAX_LOGBOOK_AMOUNT AND
+        isValidCurrency(entryData.currency) AND
+        (entryData.note IS NULL OR entryData.note.length <= 500) AND
+        (entryData.location IS NULL OR isValidLocation(entryData.location))
+    )
+
+FUNCTION isCompatibleTransactionType(logbookType, transaction):
+    // Define compatibility rules between logbook types and transaction metadata
+    SWITCH logbookType:
+        CASE "fuel":
+            RETURN transaction.metadata.category === "fuel" OR 
+                   transaction.metadata.description CONTAINS "fuel" OR
+                   transaction.metadata.description CONTAINS "petrol" OR
+                   transaction.metadata.description CONTAINS "diesel"
+        CASE "cash":
+            RETURN transaction.channel === "bank" OR
+                   transaction.metadata.category === "cash"
+        CASE "misc":
+            RETURN true // Misc can match any transaction
+        DEFAULT:
+            RETURN false
+    END SWITCH
+
+FUNCTION isValidLocation(location):
+    RETURN (
+        location.lat IS NUMBER AND
+        location.lng IS NUMBER AND
+        location.lat >= -90 AND location.lat <= 90 AND
+        location.lng >= -180 AND location.lng <= 180
+    )
+
+CONSTANT MINIMUM_MATCH_SCORE = 60 // Minimum score for automatic matching
+CONSTANT MAX_LOGBOOK_AMOUNT = 10000000 // 100,000 in major units

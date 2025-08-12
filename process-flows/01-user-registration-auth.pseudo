@@ -1,0 +1,373 @@
+// User Registration and Authentication Flow - Pseudocode
+// This file contains the pseudocode for user registration and authentication processes
+
+// ========================================
+// USER REGISTRATION FLOW
+// ========================================
+
+FUNCTION registerUser(userData):
+    BEGIN
+        // Step 1: Input Validation
+        IF NOT validateRegistrationInput(userData) THEN
+            RETURN error(400, "VALIDATION_ERROR", "Invalid input data")
+        END IF
+        
+        // Step 2: Check Email Uniqueness
+        existingUser = database.findUserByEmail(userData.email)
+        IF existingUser EXISTS THEN
+            RETURN error(409, "CONFLICT_ERROR", "Email already registered")
+        END IF
+        
+        // Step 3: Hash Password
+        passwordHash = bcrypt.hash(userData.password, saltRounds=12)
+        
+        // Step 4: Create User Record
+        TRY
+            newUser = database.createUser({
+                id: generateUUID(),
+                email: userData.email,
+                phone: userData.phone,
+                password_hash: passwordHash,
+                first_name: userData.first_name,
+                last_name: userData.last_name,
+                is_active: true,
+                email_verified: false,
+                phone_verified: false,
+                created_at: NOW(),
+                updated_at: NOW()
+            })
+        CATCH DatabaseError as e
+            RETURN error(500, "DATABASE_ERROR", "Failed to create user")
+        END TRY
+        
+        // Step 5: Assign Default Role
+        defaultRole = database.findRoleByName("customer")
+        database.assignUserRole(newUser.id, defaultRole.id)
+        
+        // Step 6: Generate JWT Tokens
+        accessToken = jwt.sign({
+            sub: newUser.id,
+            email: newUser.email,
+            roles: ["customer"],
+            permissions: getPermissionsForRoles(["customer"])
+        }, JWT_SECRET, { expiresIn: "15m" })
+        
+        refreshToken = generateSecureToken()
+        refreshTokenHash = bcrypt.hash(refreshToken, saltRounds=12)
+        
+        // Step 7: Store Refresh Token
+        database.createRefreshToken({
+            id: generateUUID(),
+            user_id: newUser.id,
+            token_hash: refreshTokenHash,
+            expires_at: NOW() + 7_DAYS,
+            revoked: false
+        })
+        
+        // Step 8: Publish Events
+        eventBus.publish("user.created", {
+            user_id: newUser.id,
+            email: newUser.email,
+            correlation_id: getCorrelationId()
+        })
+        
+        // Step 9: Queue Welcome Email
+        queue.publishJob("user.events", "user.welcome_email", {
+            user_id: newUser.id,
+            email: newUser.email,
+            name: newUser.first_name
+        }, { delay: 2000 })
+        
+        // Step 10: Log Audit Event
+        auditLogger.log({
+            event_type: "user.registered",
+            actor_user_id: newUser.id,
+            payload: { email: newUser.email },
+            correlation_id: getCorrelationId()
+        })
+        
+        // Step 11: Return Success Response
+        RETURN success({
+            user: sanitizeUser(newUser),
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            expires_in: 900 // 15 minutes
+        })
+    END
+
+// ========================================
+// USER LOGIN FLOW
+// ========================================
+
+FUNCTION loginUser(credentials):
+    BEGIN
+        // Step 1: Input Validation
+        IF NOT validateLoginInput(credentials) THEN
+            RETURN error(400, "VALIDATION_ERROR", "Invalid credentials format")
+        END IF
+        
+        // Step 2: Find User by Email
+        user = database.findUserByEmail(credentials.email)
+        IF NOT user EXISTS THEN
+            RETURN error(401, "AUTHENTICATION_ERROR", "Invalid credentials")
+        END IF
+        
+        // Step 3: Check Account Status
+        IF NOT user.is_active THEN
+            RETURN error(401, "ACCOUNT_DISABLED", "Account is disabled")
+        END IF
+        
+        // Step 4: Verify Password
+        IF NOT bcrypt.compare(credentials.password, user.password_hash) THEN
+            // Log failed attempt
+            auditLogger.log({
+                event_type: "user.login_failed",
+                actor_user_id: user.id,
+                payload: { reason: "invalid_password" },
+                ip_address: getClientIP(),
+                correlation_id: getCorrelationId()
+            })
+            RETURN error(401, "AUTHENTICATION_ERROR", "Invalid credentials")
+        END IF
+        
+        // Step 5: Get User Roles and Permissions
+        userRoles = database.getUserRoles(user.id)
+        permissions = getPermissionsForRoles(userRoles)
+        
+        // Step 6: Generate JWT Tokens
+        accessToken = jwt.sign({
+            sub: user.id,
+            email: user.email,
+            roles: userRoles,
+            permissions: permissions,
+            iat: NOW(),
+            exp: NOW() + 15_MINUTES,
+            iss: "eliteepay-auth",
+            aud: "eliteepay-services"
+        }, JWT_SECRET)
+        
+        refreshToken = generateSecureToken()
+        refreshTokenHash = bcrypt.hash(refreshToken, saltRounds=12)
+        
+        // Step 7: Store Refresh Token (and revoke old ones)
+        database.revokeUserRefreshTokens(user.id)
+        database.createRefreshToken({
+            id: generateUUID(),
+            user_id: user.id,
+            token_hash: refreshTokenHash,
+            expires_at: NOW() + 7_DAYS,
+            revoked: false
+        })
+        
+        // Step 8: Create User Session
+        database.createUserSession({
+            id: generateUUID(),
+            user_id: user.id,
+            session_token: generateSessionToken(),
+            ip_address: getClientIP(),
+            user_agent: getUserAgent(),
+            expires_at: NOW() + 30_MINUTES
+        })
+        
+        // Step 9: Publish Login Event
+        eventBus.publish("user.login", {
+            user_id: user.id,
+            ip_address: getClientIP(),
+            user_agent: getUserAgent(),
+            correlation_id: getCorrelationId()
+        })
+        
+        // Step 10: Log Successful Login
+        auditLogger.log({
+            event_type: "user.login_success",
+            actor_user_id: user.id,
+            payload: { login_method: "email_password" },
+            ip_address: getClientIP(),
+            user_agent: getUserAgent(),
+            correlation_id: getCorrelationId()
+        })
+        
+        // Step 11: Return Success Response
+        RETURN success({
+            user: sanitizeUser(user),
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            expires_in: 900 // 15 minutes
+        })
+    END
+
+// ========================================
+// TOKEN REFRESH FLOW
+// ========================================
+
+FUNCTION refreshAccessToken(refreshToken):
+    BEGIN
+        // Step 1: Validate Refresh Token Format
+        IF NOT isValidTokenFormat(refreshToken) THEN
+            RETURN error(401, "INVALID_TOKEN", "Invalid token format")
+        END IF
+        
+        // Step 2: Find Refresh Token Record
+        tokenRecords = database.findRefreshTokens()
+        validToken = NULL
+        
+        FOR EACH tokenRecord IN tokenRecords DO
+            IF bcrypt.compare(refreshToken, tokenRecord.token_hash) THEN
+                validToken = tokenRecord
+                BREAK
+            END IF
+        END FOR
+        
+        // Step 3: Validate Token
+        IF validToken IS NULL THEN
+            RETURN error(401, "INVALID_TOKEN", "Token not found")
+        END IF
+        
+        IF validToken.revoked OR validToken.expires_at < NOW() THEN
+            RETURN error(401, "TOKEN_EXPIRED", "Token is expired or revoked")
+        END IF
+        
+        // Step 4: Get User Information
+        user = database.findUserById(validToken.user_id)
+        IF NOT user EXISTS OR NOT user.is_active THEN
+            RETURN error(401, "USER_INACTIVE", "User account is inactive")
+        END IF
+        
+        // Step 5: Generate New Access Token
+        userRoles = database.getUserRoles(user.id)
+        permissions = getPermissionsForRoles(userRoles)
+        
+        newAccessToken = jwt.sign({
+            sub: user.id,
+            email: user.email,
+            roles: userRoles,
+            permissions: permissions,
+            iat: NOW(),
+            exp: NOW() + 15_MINUTES,
+            iss: "eliteepay-auth",
+            aud: "eliteepay-services"
+        }, JWT_SECRET)
+        
+        // Step 6: Rotate Refresh Token
+        newRefreshToken = generateSecureToken()
+        newRefreshTokenHash = bcrypt.hash(newRefreshToken, saltRounds=12)
+        
+        // Step 7: Update Database
+        database.revokeRefreshToken(validToken.id)
+        database.createRefreshToken({
+            id: generateUUID(),
+            user_id: user.id,
+            token_hash: newRefreshTokenHash,
+            expires_at: NOW() + 7_DAYS,
+            revoked: false
+        })
+        
+        // Step 8: Log Token Refresh
+        auditLogger.log({
+            event_type: "token.refreshed",
+            actor_user_id: user.id,
+            payload: { token_id: validToken.id },
+            correlation_id: getCorrelationId()
+        })
+        
+        // Step 9: Return New Tokens
+        RETURN success({
+            access_token: newAccessToken,
+            refresh_token: newRefreshToken,
+            expires_in: 900 // 15 minutes
+        })
+    END
+
+// ========================================
+// JWT VALIDATION MIDDLEWARE
+// ========================================
+
+FUNCTION validateJWTMiddleware(request, response, next):
+    BEGIN
+        // Step 1: Extract Token from Header
+        authHeader = request.headers["authorization"]
+        IF NOT authHeader OR NOT authHeader.startsWith("Bearer ") THEN
+            RETURN error(401, "MISSING_TOKEN", "Authorization token required")
+        END IF
+        
+        token = authHeader.substring(7) // Remove "Bearer "
+        
+        // Step 2: Verify JWT Token
+        TRY
+            payload = jwt.verify(token, JWT_SECRET, {
+                issuer: "eliteepay-auth",
+                audience: "eliteepay-services"
+            })
+        CATCH JWTError as e
+            RETURN error(401, "INVALID_TOKEN", "Token validation failed")
+        END TRY
+        
+        // Step 3: Check Token Expiration
+        IF payload.exp < NOW() THEN
+            RETURN error(401, "TOKEN_EXPIRED", "Token has expired")
+        END IF
+        
+        // Step 4: Validate User Still Exists and Active
+        user = database.findUserById(payload.sub)
+        IF NOT user EXISTS OR NOT user.is_active THEN
+            RETURN error(401, "USER_INACTIVE", "User account is inactive")
+        END IF
+        
+        // Step 5: Add User Context to Request
+        request.user = {
+            id: payload.sub,
+            email: payload.email,
+            roles: payload.roles,
+            permissions: payload.permissions
+        }
+        
+        // Step 6: Continue to Next Middleware
+        next()
+    END
+
+// ========================================
+// HELPER FUNCTIONS
+// ========================================
+
+FUNCTION validateRegistrationInput(userData):
+    RETURN (
+        isValidEmail(userData.email) AND
+        isValidPassword(userData.password) AND
+        isValidName(userData.first_name) AND
+        isValidName(userData.last_name) AND
+        (userData.phone IS NULL OR isValidPhone(userData.phone))
+    )
+
+FUNCTION validateLoginInput(credentials):
+    RETURN (
+        isValidEmail(credentials.email) AND
+        credentials.password.length > 0
+    )
+
+FUNCTION sanitizeUser(user):
+    RETURN {
+        id: user.id,
+        email: user.email,
+        phone: user.phone,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        is_active: user.is_active,
+        email_verified: user.email_verified,
+        phone_verified: user.phone_verified,
+        created_at: user.created_at
+        // Note: password_hash is excluded
+    }
+
+FUNCTION getPermissionsForRoles(roles):
+    permissions = []
+    FOR EACH role IN roles DO
+        rolePermissions = database.getRolePermissions(role)
+        permissions = permissions.concat(rolePermissions)
+    END FOR
+    RETURN unique(permissions)
+
+FUNCTION generateSecureToken():
+    RETURN crypto.randomBytes(32).toString('hex')
+
+FUNCTION generateSessionToken():
+    RETURN crypto.randomBytes(16).toString('hex')

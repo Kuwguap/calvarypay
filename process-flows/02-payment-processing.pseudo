@@ -1,0 +1,423 @@
+// Payment Initiation and Processing Flow - Pseudocode
+// This file contains the pseudocode for payment processing workflows
+
+// ========================================
+// PAYMENT INITIATION FLOW
+// ========================================
+
+FUNCTION initiatePayment(paymentRequest, userId):
+    BEGIN
+        correlationId = generateCorrelationId()
+        
+        // Step 1: Validate Payment Request
+        IF NOT validatePaymentRequest(paymentRequest) THEN
+            RETURN error(400, "VALIDATION_ERROR", "Invalid payment request")
+        END IF
+        
+        // Step 2: Check Idempotency
+        IF paymentRequest.idempotency_key EXISTS THEN
+            existingTransaction = database.findTransactionByIdempotencyKey(
+                paymentRequest.idempotency_key, userId
+            )
+            IF existingTransaction EXISTS THEN
+                RETURN success(existingTransaction)
+            END IF
+        END IF
+        
+        // Step 3: Get Current Pricing
+        currentPrices = pricingService.getCurrentPrices()
+        
+        // Step 4: Calculate Fees
+        fees = calculateTransactionFees(paymentRequest.amount, paymentRequest.currency)
+        
+        // Step 5: Create Transaction Record
+        transactionId = generateUUID()
+        reference = generateTransactionReference()
+        
+        TRY
+            transaction = database.createTransaction({
+                id: transactionId,
+                user_id: userId,
+                reference: reference,
+                amount_minor: convertToMinorUnits(paymentRequest.amount, paymentRequest.currency),
+                currency: paymentRequest.currency,
+                status: "pending",
+                provider: "paystack",
+                payment_method: paymentRequest.channel || "card",
+                channel: paymentRequest.channel || "card",
+                metadata: paymentRequest.metadata || {},
+                fees_minor: convertToMinorUnits(fees, paymentRequest.currency),
+                created_at: NOW(),
+                updated_at: NOW()
+            })
+        CATCH DatabaseError as e
+            RETURN error(500, "DATABASE_ERROR", "Failed to create transaction")
+        END TRY
+        
+        // Step 6: Create Price Snapshots
+        FOR EACH price IN currentPrices DO
+            database.createPricingSnapshot({
+                id: generateUUID(),
+                transaction_id: transactionId,
+                price_key: price.key,
+                amount_minor: price.amount_minor,
+                currency: price.currency,
+                snapshot_at: NOW()
+            })
+        END FOR
+        
+        // Step 7: Initialize Payment with Paystack
+        TRY
+            paystackResponse = paystack.initializeTransaction({
+                email: getUserEmail(userId),
+                amount: convertToMinorUnits(paymentRequest.amount, paymentRequest.currency),
+                currency: paymentRequest.currency,
+                reference: reference,
+                callback_url: paymentRequest.callback_url,
+                metadata: {
+                    user_id: userId,
+                    transaction_id: transactionId,
+                    correlation_id: correlationId
+                }
+            })
+        CATCH PaystackError as e
+            // Update transaction status to failed
+            database.updateTransaction(transactionId, {
+                status: "failed",
+                metadata: { error: e.message },
+                updated_at: NOW()
+            })
+            RETURN error(502, "PAYMENT_PROVIDER_ERROR", "Payment initialization failed")
+        END TRY
+        
+        // Step 8: Update Transaction with Authorization URL
+        database.updateTransaction(transactionId, {
+            authorization_url: paystackResponse.authorization_url,
+            provider_reference: paystackResponse.access_code,
+            updated_at: NOW()
+        })
+        
+        // Step 9: Publish Payment Initiated Event
+        eventBus.publish("payment.initiated", {
+            transaction_id: transactionId,
+            user_id: userId,
+            amount: paymentRequest.amount,
+            currency: paymentRequest.currency,
+            reference: reference,
+            correlation_id: correlationId
+        })
+        
+        // Step 10: Queue Notification
+        queue.publishJob("payment.notifications", "payment.notification", {
+            type: "payment_initiated",
+            user_id: userId,
+            transaction_id: transactionId,
+            amount: paymentRequest.amount,
+            currency: paymentRequest.currency,
+            reference: reference
+        }, { delay: 5000 })
+        
+        // Step 11: Log Audit Event
+        auditLogger.log({
+            event_type: "payment.initiated",
+            actor_user_id: userId,
+            payload: {
+                transaction_id: transactionId,
+                amount: paymentRequest.amount,
+                currency: paymentRequest.currency,
+                provider: "paystack"
+            },
+            correlation_id: correlationId
+        })
+        
+        // Step 12: Return Authorization URL
+        RETURN success({
+            reference: reference,
+            authorization_url: paystackResponse.authorization_url,
+            access_code: paystackResponse.access_code
+        })
+    END
+
+// ========================================
+// WEBHOOK PROCESSING FLOW
+// ========================================
+
+FUNCTION processPaystackWebhook(webhookPayload, signature):
+    BEGIN
+        correlationId = generateCorrelationId()
+        
+        // Step 1: Validate Webhook Signature
+        expectedSignature = crypto.createHmac('sha512', PAYSTACK_WEBHOOK_SECRET)
+            .update(JSON.stringify(webhookPayload))
+            .digest('hex')
+        
+        IF signature !== expectedSignature THEN
+            auditLogger.log({
+                event_type: "security.webhook_signature_invalid",
+                payload: { provider: "paystack" },
+                correlation_id: correlationId
+            })
+            RETURN error(400, "INVALID_SIGNATURE", "Webhook signature validation failed")
+        END IF
+        
+        // Step 2: Extract Event Data
+        event = webhookPayload.event
+        data = webhookPayload.data
+        reference = data.reference
+        
+        // Step 3: Find Transaction
+        transaction = database.findTransactionByReference(reference)
+        IF NOT transaction EXISTS THEN
+            RETURN error(404, "TRANSACTION_NOT_FOUND", "Transaction not found")
+        END IF
+        
+        // Step 4: Prevent Duplicate Processing
+        IF transaction.status IN ["success", "failed", "cancelled"] THEN
+            RETURN success({ message: "Webhook already processed" })
+        END IF
+        
+        // Step 5: Process Based on Event Type
+        SWITCH event:
+            CASE "charge.success":
+                CALL processSuccessfulPayment(transaction, data, correlationId)
+            CASE "charge.failed":
+                CALL processFailedPayment(transaction, data, correlationId)
+            DEFAULT:
+                // Log unknown event but don't fail
+                auditLogger.log({
+                    event_type: "webhook.unknown_event",
+                    payload: { event: event, reference: reference },
+                    correlation_id: correlationId
+                })
+        END SWITCH
+        
+        // Step 6: Return Success
+        RETURN success({ message: "Webhook processed successfully" })
+    END
+
+// ========================================
+// SUCCESSFUL PAYMENT PROCESSING
+// ========================================
+
+FUNCTION processSuccessfulPayment(transaction, paymentData, correlationId):
+    BEGIN
+        // Step 1: Update Transaction Status
+        database.updateTransaction(transaction.id, {
+            status: "success",
+            settled_amount_minor: paymentData.amount,
+            settlement_date: parseDate(paymentData.paid_at),
+            channel: paymentData.channel,
+            metadata: mergeMetadata(transaction.metadata, {
+                gateway_response: paymentData.gateway_response,
+                fees: paymentData.fees,
+                authorization: paymentData.authorization
+            }),
+            updated_at: NOW()
+        })
+        
+        // Step 2: Publish Success Event
+        eventBus.publish("payment.succeeded", {
+            transaction_id: transaction.id,
+            user_id: transaction.user_id,
+            amount: convertFromMinorUnits(paymentData.amount, transaction.currency),
+            currency: transaction.currency,
+            reference: transaction.reference,
+            settled_amount: convertFromMinorUnits(paymentData.amount, transaction.currency),
+            correlation_id: correlationId
+        })
+        
+        // Step 3: Queue Success Notification
+        user = database.findUserById(transaction.user_id)
+        queue.publishJob("payment.notifications", "payment.notification", {
+            type: "payment_success",
+            user_id: transaction.user_id,
+            transaction_id: transaction.id,
+            amount: convertFromMinorUnits(paymentData.amount, transaction.currency),
+            currency: transaction.currency,
+            reference: transaction.reference,
+            customer_name: user.first_name + " " + user.last_name,
+            email: user.email,
+            phone: user.phone
+        })
+        
+        // Step 4: Log Audit Event
+        auditLogger.log({
+            event_type: "payment.succeeded",
+            actor_user_id: transaction.user_id,
+            payload: {
+                transaction_id: transaction.id,
+                reference: transaction.reference,
+                amount: convertFromMinorUnits(paymentData.amount, transaction.currency),
+                currency: transaction.currency,
+                provider: "paystack",
+                gateway_response: paymentData.gateway_response
+            },
+            correlation_id: correlationId
+        })
+        
+        // Step 5: Trigger Reconciliation Check
+        queue.publishJob("reconciliation.jobs", "reconciliation.check", {
+            transaction_id: transaction.id,
+            user_id: transaction.user_id,
+            amount: convertFromMinorUnits(paymentData.amount, transaction.currency),
+            currency: transaction.currency,
+            timestamp: NOW()
+        }, { delay: 60000 }) // 1 minute delay
+    END
+
+// ========================================
+// FAILED PAYMENT PROCESSING
+// ========================================
+
+FUNCTION processFailedPayment(transaction, paymentData, correlationId):
+    BEGIN
+        // Step 1: Update Transaction Status
+        database.updateTransaction(transaction.id, {
+            status: "failed",
+            metadata: mergeMetadata(transaction.metadata, {
+                gateway_response: paymentData.gateway_response,
+                failure_reason: paymentData.gateway_response
+            }),
+            updated_at: NOW()
+        })
+        
+        // Step 2: Publish Failed Event
+        eventBus.publish("payment.failed", {
+            transaction_id: transaction.id,
+            user_id: transaction.user_id,
+            amount: convertFromMinorUnits(transaction.amount_minor, transaction.currency),
+            currency: transaction.currency,
+            reference: transaction.reference,
+            reason: paymentData.gateway_response,
+            correlation_id: correlationId
+        })
+        
+        // Step 3: Queue Failure Notification
+        user = database.findUserById(transaction.user_id)
+        queue.publishJob("payment.notifications", "payment.notification", {
+            type: "payment_failed",
+            user_id: transaction.user_id,
+            transaction_id: transaction.id,
+            amount: convertFromMinorUnits(transaction.amount_minor, transaction.currency),
+            currency: transaction.currency,
+            reference: transaction.reference,
+            reason: paymentData.gateway_response,
+            customer_name: user.first_name + " " + user.last_name,
+            email: user.email,
+            phone: user.phone
+        })
+        
+        // Step 4: Log Audit Event
+        auditLogger.log({
+            event_type: "payment.failed",
+            actor_user_id: transaction.user_id,
+            payload: {
+                transaction_id: transaction.id,
+                reference: transaction.reference,
+                amount: convertFromMinorUnits(transaction.amount_minor, transaction.currency),
+                currency: transaction.currency,
+                provider: "paystack",
+                failure_reason: paymentData.gateway_response
+            },
+            correlation_id: correlationId
+        })
+    END
+
+// ========================================
+// PAYMENT STATUS POLLING
+// ========================================
+
+FUNCTION getPaymentStatus(reference, userId):
+    BEGIN
+        // Step 1: Find Transaction
+        transaction = database.findTransactionByReference(reference)
+        IF NOT transaction EXISTS THEN
+            RETURN error(404, "TRANSACTION_NOT_FOUND", "Transaction not found")
+        END IF
+        
+        // Step 2: Verify User Access
+        IF transaction.user_id !== userId THEN
+            RETURN error(403, "ACCESS_DENIED", "Access denied")
+        END IF
+        
+        // Step 3: If Still Pending, Check with Paystack
+        IF transaction.status === "pending" THEN
+            TRY
+                paystackStatus = paystack.verifyTransaction(reference)
+                IF paystackStatus.status === "success" AND transaction.status === "pending" THEN
+                    // Process as successful payment
+                    CALL processSuccessfulPayment(transaction, paystackStatus.data, generateCorrelationId())
+                    // Refresh transaction from database
+                    transaction = database.findTransactionByReference(reference)
+                END IF
+            CATCH PaystackError as e
+                // Log error but don't fail the status check
+                auditLogger.log({
+                    event_type: "payment.status_check_failed",
+                    actor_user_id: userId,
+                    payload: { reference: reference, error: e.message },
+                    correlation_id: generateCorrelationId()
+                })
+            END TRY
+        END IF
+        
+        // Step 4: Return Current Status
+        RETURN success({
+            reference: transaction.reference,
+            status: transaction.status,
+            amount: convertFromMinorUnits(transaction.amount_minor, transaction.currency),
+            currency: transaction.currency,
+            created_at: transaction.created_at,
+            updated_at: transaction.updated_at,
+            authorization_url: transaction.authorization_url
+        })
+    END
+
+// ========================================
+// HELPER FUNCTIONS
+// ========================================
+
+FUNCTION validatePaymentRequest(request):
+    RETURN (
+        request.amount > 0 AND
+        request.amount <= MAX_PAYMENT_AMOUNT AND
+        request.amount >= MIN_PAYMENT_AMOUNT AND
+        isValidCurrency(request.currency) AND
+        (request.channel IS NULL OR isValidChannel(request.channel))
+    )
+
+FUNCTION calculateTransactionFees(amount, currency):
+    feePercentage = pricingService.getPrice("transaction_fee_percentage")
+    feeAmount = amount * (feePercentage / 10000) // Convert from basis points
+    
+    minFee = pricingService.getPrice("min_transaction_fee")
+    maxFee = pricingService.getPrice("max_transaction_fee")
+    
+    RETURN Math.max(minFee, Math.min(maxFee, feeAmount))
+
+FUNCTION generateTransactionReference():
+    timestamp = NOW().getTime()
+    random = crypto.randomBytes(4).toString('hex').toUpperCase()
+    RETURN "TXN_" + timestamp + "_" + random
+
+FUNCTION convertToMinorUnits(amount, currency):
+    // Convert major units to minor units (e.g., Naira to Kobo)
+    SWITCH currency:
+        CASE "NGN", "KES", "GHS", "ZAR":
+            RETURN Math.round(amount * 100)
+        CASE "USD", "EUR", "GBP":
+            RETURN Math.round(amount * 100)
+        DEFAULT:
+            RETURN Math.round(amount * 100)
+    END SWITCH
+
+FUNCTION convertFromMinorUnits(amountMinor, currency):
+    // Convert minor units to major units
+    SWITCH currency:
+        CASE "NGN", "KES", "GHS", "ZAR":
+            RETURN amountMinor / 100
+        CASE "USD", "EUR", "GBP":
+            RETURN amountMinor / 100
+        DEFAULT:
+            RETURN amountMinor / 100
+    END SWITCH

@@ -1,0 +1,484 @@
+// RabbitMQ Queue and Messaging Flow - Pseudocode
+// This file contains the pseudocode for queue management and message processing
+
+// ========================================
+// MESSAGE PUBLISHING FLOW
+// ========================================
+
+FUNCTION publishMessage(queueName, jobType, data, options):
+    BEGIN
+        correlationId = options.correlation_id || generateCorrelationId()
+        
+        // Step 1: Validate Connection
+        IF NOT rabbitMQ.isConnected() THEN
+            TRY
+                CALL connectToRabbitMQ()
+            CATCH ConnectionError as e
+                RETURN error("QUEUE_CONNECTION_FAILED", "Failed to connect to message queue")
+            END TRY
+        END IF
+        
+        // Step 2: Validate Input
+        IF NOT isValidQueueName(queueName) THEN
+            RETURN error("INVALID_QUEUE", "Invalid queue name")
+        END IF
+        
+        IF NOT isValidJobType(jobType) THEN
+            RETURN error("INVALID_JOB_TYPE", "Invalid job type")
+        END IF
+        
+        // Step 3: Create Job Object
+        jobId = generateJobId(jobType)
+        job = {
+            id: jobId,
+            type: jobType,
+            data: data,
+            options: {
+                delay: options.delay || 0,
+                priority: options.priority || 0,
+                attempts: options.attempts || 3,
+                backoff: options.backoff || "exponential",
+                ttl: options.ttl || 3600000 // 1 hour default
+            },
+            attempts: 0,
+            created_at: NOW(),
+            correlation_id: correlationId
+        }
+        
+        // Step 4: Ensure Queue Exists
+        CALL ensureQueueExists(queueName, {
+            durable: true,
+            arguments: {
+                "x-message-ttl": job.options.ttl,
+                "x-dead-letter-exchange": queueName + ".dlx",
+                "x-dead-letter-routing-key": "failed"
+            }
+        })
+        
+        // Step 5: Ensure Dead Letter Queue Exists
+        CALL ensureDeadLetterQueue(queueName)
+        
+        // Step 6: Prepare Message Options
+        messageOptions = {
+            persistent: true,
+            messageId: jobId,
+            timestamp: Date.now(),
+            correlationId: correlationId,
+            headers: {
+                "x-job-type": jobType,
+                "x-max-attempts": job.options.attempts,
+                "x-backoff": job.options.backoff,
+                "x-attempts": 0,
+                "x-created-at": job.created_at.toISOString()
+            }
+        }
+        
+        // Step 7: Handle Delayed Messages
+        IF job.options.delay > 0 THEN
+            messageOptions.headers["x-delay"] = job.options.delay
+            // Use delayed message plugin or TTL + DLX pattern
+        END IF
+        
+        // Step 8: Set Priority
+        IF job.options.priority > 0 THEN
+            messageOptions.priority = job.options.priority
+        END IF
+        
+        // Step 9: Publish Message
+        TRY
+            success = rabbitMQ.channel.sendToQueue(
+                queueName,
+                Buffer.from(JSON.stringify(job)),
+                messageOptions
+            )
+            
+            IF NOT success THEN
+                THROW new Error("Failed to publish message to queue")
+            END IF
+        CATCH PublishError as e
+            // Log error and implement retry logic
+            logger.error("Failed to publish message", {
+                queue: queueName,
+                jobType: jobType,
+                jobId: jobId,
+                error: e.message,
+                correlationId: correlationId
+            })
+            
+            // Implement circuit breaker pattern
+            circuitBreaker.recordFailure()
+            RETURN error("PUBLISH_FAILED", "Failed to publish message")
+        END TRY
+        
+        // Step 10: Update Metrics
+        metrics.incrementCounter("queue.messages.published", {
+            queue: queueName,
+            job_type: jobType
+        })
+        
+        // Step 11: Log Success
+        logger.info("Message published successfully", {
+            queue: queueName,
+            jobType: jobType,
+            jobId: jobId,
+            correlationId: correlationId
+        })
+        
+        RETURN success(jobId)
+    END
+
+// ========================================
+// MESSAGE CONSUMPTION FLOW
+// ========================================
+
+FUNCTION startConsumer(queueName, processor, options):
+    BEGIN
+        // Step 1: Validate Connection
+        IF NOT rabbitMQ.isConnected() THEN
+            CALL connectToRabbitMQ()
+        END IF
+        
+        // Step 2: Ensure Queue Exists
+        CALL ensureQueueExists(queueName)
+        
+        // Step 3: Set Concurrency
+        concurrency = options.concurrency || 1
+        rabbitMQ.channel.prefetch(concurrency)
+        
+        // Step 4: Start Consuming
+        rabbitMQ.channel.consume(queueName, FUNCTION(message):
+            BEGIN
+                IF message IS NULL THEN
+                    RETURN // Consumer cancelled
+                END IF
+                
+                CALL processMessage(message, processor, queueName)
+            END
+        )
+        
+        logger.info("Started consuming messages", {
+            queue: queueName,
+            concurrency: concurrency
+        })
+    END
+
+// ========================================
+// MESSAGE PROCESSING FLOW
+// ========================================
+
+FUNCTION processMessage(message, processor, queueName):
+    BEGIN
+        startTime = NOW()
+        job = NULL
+        
+        TRY
+            // Step 1: Parse Message
+            job = JSON.parse(message.content.toString())
+            
+            // Step 2: Validate Job Structure
+            IF NOT isValidJob(job) THEN
+                THROW new Error("Invalid job structure")
+            END IF
+            
+            // Step 3: Check TTL
+            IF job.created_at + job.options.ttl < NOW() THEN
+                logger.warn("Job expired, sending to DLQ", {
+                    jobId: job.id,
+                    jobType: job.type,
+                    createdAt: job.created_at,
+                    ttl: job.options.ttl
+                })
+                CALL sendToDeadLetterQueue(message, "JOB_EXPIRED")
+                RETURN
+            END IF
+            
+            // Step 4: Update Attempt Count
+            currentAttempts = parseInt(message.properties.headers["x-attempts"] || "0") + 1
+            job.attempts = currentAttempts
+            
+            // Step 5: Log Processing Start
+            logger.info("Processing job", {
+                jobId: job.id,
+                jobType: job.type,
+                attempt: currentAttempts,
+                correlationId: job.correlation_id
+            })
+            
+            // Step 6: Execute Processor
+            AWAIT processor(job)
+            
+            // Step 7: Acknowledge Success
+            rabbitMQ.channel.ack(message)
+            
+            // Step 8: Update Metrics
+            processingTime = NOW() - startTime
+            metrics.recordJobProcessed(queueName, job.type, "success")
+            metrics.recordJobDuration(queueName, job.type, processingTime)
+            
+            // Step 9: Log Success
+            logger.info("Job processed successfully", {
+                jobId: job.id,
+                jobType: job.type,
+                processingTime: processingTime,
+                correlationId: job.correlation_id
+            })
+            
+        CATCH ProcessingError as e
+            // Step 10: Handle Processing Failure
+            CALL handleProcessingFailure(message, job, e, queueName)
+        END TRY
+    END
+
+// ========================================
+// FAILURE HANDLING FLOW
+// ========================================
+
+FUNCTION handleProcessingFailure(message, job, error, queueName):
+    BEGIN
+        currentAttempts = parseInt(message.properties.headers["x-attempts"] || "0") + 1
+        maxAttempts = parseInt(message.properties.headers["x-max-attempts"] || "3")
+        
+        // Step 1: Log Error
+        logger.error("Job processing failed", {
+            jobId: job?.id,
+            jobType: job?.type,
+            attempt: currentAttempts,
+            maxAttempts: maxAttempts,
+            error: error.message,
+            stack: error.stack,
+            correlationId: job?.correlation_id
+        })
+        
+        // Step 2: Update Metrics
+        metrics.recordJobProcessed(queueName, job?.type || "unknown", "failed")
+        
+        // Step 3: Check if Max Attempts Reached
+        IF currentAttempts >= maxAttempts THEN
+            // Send to Dead Letter Queue
+            logger.warn("Job exceeded max attempts, sending to DLQ", {
+                jobId: job?.id,
+                jobType: job?.type,
+                attempts: currentAttempts,
+                maxAttempts: maxAttempts
+            })
+            
+            CALL sendToDeadLetterQueue(message, "MAX_ATTEMPTS_EXCEEDED")
+            RETURN
+        END IF
+        
+        // Step 4: Calculate Backoff Delay
+        backoffType = message.properties.headers["x-backoff"] || "exponential"
+        delay = calculateBackoffDelay(currentAttempts, backoffType)
+        
+        // Step 5: Reject and Requeue with Delay
+        rabbitMQ.channel.nack(message, false, false) // Don't requeue immediately
+        
+        // Step 6: Schedule Retry
+        setTimeout(FUNCTION():
+            BEGIN
+                // Update attempt count in headers
+                updatedHeaders = {
+                    ...message.properties.headers,
+                    "x-attempts": currentAttempts
+                }
+                
+                // Republish with updated headers
+                rabbitMQ.channel.sendToQueue(
+                    queueName,
+                    message.content,
+                    {
+                        ...message.properties,
+                        headers: updatedHeaders
+                    }
+                )
+                
+                logger.info("Job requeued for retry", {
+                    jobId: job?.id,
+                    jobType: job?.type,
+                    attempt: currentAttempts,
+                    delay: delay
+                })
+            END
+        , delay)
+    END
+
+// ========================================
+// DEAD LETTER QUEUE HANDLING
+// ========================================
+
+FUNCTION sendToDeadLetterQueue(message, reason):
+    BEGIN
+        dlqName = message.fields.routingKey + ".failed"
+        
+        // Add failure metadata
+        failureMetadata = {
+            original_queue: message.fields.routingKey,
+            failure_reason: reason,
+            failed_at: NOW().toISOString(),
+            original_headers: message.properties.headers
+        }
+        
+        // Send to DLQ
+        rabbitMQ.channel.sendToQueue(
+            dlqName,
+            message.content,
+            {
+                ...message.properties,
+                headers: {
+                    ...message.properties.headers,
+                    "x-failure-metadata": JSON.stringify(failureMetadata)
+                }
+            }
+        )
+        
+        // Acknowledge original message
+        rabbitMQ.channel.ack(message)
+        
+        // Update metrics
+        metrics.incrementCounter("queue.messages.dead_letter", {
+            queue: message.fields.routingKey,
+            reason: reason
+        })
+        
+        // Log DLQ event
+        logger.warn("Message sent to dead letter queue", {
+            originalQueue: message.fields.routingKey,
+            dlqName: dlqName,
+            reason: reason,
+            messageId: message.properties.messageId
+        })
+    END
+
+// ========================================
+// CONNECTION MANAGEMENT
+// ========================================
+
+FUNCTION connectToRabbitMQ():
+    BEGIN
+        TRY
+            // Step 1: Create Connection
+            connection = amqp.connect(RABBITMQ_URL, {
+                heartbeat: 60,
+                connectionTimeout: 30000
+            })
+            
+            // Step 2: Create Channel
+            channel = connection.createChannel()
+            channel.prefetch(1) // Fair dispatch
+            
+            // Step 3: Set up Event Handlers
+            connection.on("error", FUNCTION(error):
+                logger.error("RabbitMQ connection error", { error: error.message })
+                circuitBreaker.recordFailure()
+                CALL scheduleReconnection()
+            END)
+            
+            connection.on("close", FUNCTION():
+                logger.warn("RabbitMQ connection closed")
+                CALL scheduleReconnection()
+            END)
+            
+            channel.on("error", FUNCTION(error):
+                logger.error("RabbitMQ channel error", { error: error.message })
+            END)
+            
+            // Step 4: Store References
+            rabbitMQ.connection = connection
+            rabbitMQ.channel = channel
+            rabbitMQ.connected = true
+            
+            // Step 5: Reset Circuit Breaker
+            circuitBreaker.recordSuccess()
+            
+            logger.info("Connected to RabbitMQ successfully")
+            
+        CATCH ConnectionError as e
+            logger.error("Failed to connect to RabbitMQ", { error: e.message })
+            circuitBreaker.recordFailure()
+            THROW e
+        END TRY
+    END
+
+// ========================================
+// QUEUE MANAGEMENT
+// ========================================
+
+FUNCTION ensureQueueExists(queueName, options):
+    BEGIN
+        IF NOT queueCache.has(queueName) THEN
+            // Assert queue with options
+            rabbitMQ.channel.assertQueue(queueName, {
+                durable: true,
+                arguments: options?.arguments || {}
+            })
+            
+            queueCache.set(queueName, true)
+            logger.debug("Queue ensured", { queue: queueName })
+        END IF
+    END
+
+FUNCTION ensureDeadLetterQueue(queueName):
+    BEGIN
+        dlxName = queueName + ".dlx"
+        dlqName = queueName + ".failed"
+        
+        // Create dead letter exchange
+        rabbitMQ.channel.assertExchange(dlxName, "direct", { durable: true })
+        
+        // Create dead letter queue
+        rabbitMQ.channel.assertQueue(dlqName, { durable: true })
+        
+        // Bind DLQ to DLX
+        rabbitMQ.channel.bindQueue(dlqName, dlxName, "failed")
+    END
+
+// ========================================
+// HELPER FUNCTIONS
+// ========================================
+
+FUNCTION calculateBackoffDelay(attempt, backoffType):
+    SWITCH backoffType:
+        CASE "exponential":
+            baseDelay = 1000 // 1 second
+            maxDelay = 30000 // 30 seconds
+            delay = Math.min(baseDelay * Math.pow(2, attempt - 1), maxDelay)
+            // Add jitter to prevent thundering herd
+            jitter = Math.random() * 0.1 * delay
+            RETURN delay + jitter
+        CASE "linear":
+            RETURN 5000 * attempt // 5 seconds * attempt number
+        CASE "fixed":
+            RETURN 5000 // Fixed 5 seconds
+        DEFAULT:
+            RETURN 5000
+    END SWITCH
+
+FUNCTION generateJobId(jobType):
+    timestamp = Date.now()
+    random = crypto.randomBytes(4).toString('hex')
+    RETURN jobType + "_" + timestamp + "_" + random
+
+FUNCTION isValidJob(job):
+    RETURN (
+        job.id IS STRING AND
+        job.type IS STRING AND
+        job.data IS OBJECT AND
+        job.options IS OBJECT AND
+        job.created_at IS DATE
+    )
+
+FUNCTION isValidQueueName(queueName):
+    // Queue names should be alphanumeric with dots and underscores
+    RETURN /^[a-zA-Z0-9._-]+$/.test(queueName)
+
+FUNCTION isValidJobType(jobType):
+    validJobTypes = [
+        "payment.notification",
+        "audit.log",
+        "user.welcome",
+        "reconciliation.process",
+        "pricing.update",
+        "email.send",
+        "sms.send"
+    ]
+    RETURN validJobTypes.includes(jobType)

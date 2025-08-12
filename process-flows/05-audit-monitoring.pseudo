@@ -1,0 +1,496 @@
+// Audit Logging and Monitoring Flow - Pseudocode
+// This file contains the pseudocode for audit logging and system monitoring
+
+// ========================================
+// AUDIT LOG CREATION FLOW
+// ========================================
+
+FUNCTION createAuditLog(eventType, actorUserId, payload, options):
+    BEGIN
+        correlationId = options.correlation_id || generateCorrelationId()
+        
+        // Step 1: Validate Input
+        IF NOT isValidEventType(eventType) THEN
+            THROW new Error("Invalid audit event type")
+        END IF
+        
+        // Step 2: Enrich Audit Data
+        auditData = {
+            id: generateUUID(),
+            event_time: NOW(),
+            actor_user_id: actorUserId,
+            event_type: eventType,
+            correlation_id: correlationId,
+            payload: sanitizePayload(payload),
+            ip_address: options.ip_address,
+            user_agent: options.user_agent,
+            service_name: options.service_name || getServiceName(),
+            created_at: NOW()
+        }
+        
+        // Step 3: Generate HMAC Signature
+        auditData.signature_hmac = generateHMACSignature(auditData)
+        
+        // Step 4: Publish to Queue (Async Processing)
+        queue.publishJob("audit.logs", "audit.log", auditData, {
+            priority: getPriorityForEventType(eventType),
+            correlation_id: correlationId
+        })
+        
+        // Step 5: For Critical Events, Also Log Synchronously
+        IF isCriticalEvent(eventType) THEN
+            TRY
+                database.createAuditLog(auditData)
+            CATCH DatabaseError as e
+                // Log to file as fallback
+                fileLogger.error("Failed to write critical audit log", {
+                    auditData: auditData,
+                    error: e.message
+                })
+            END TRY
+        END IF
+        
+        // Step 6: Update Metrics
+        metrics.incrementCounter("audit.events.created", {
+            event_type: eventType,
+            service: auditData.service_name
+        })
+        
+        RETURN auditData.id
+    END
+
+// ========================================
+// AUDIT LOG PROCESSING (Queue Consumer)
+// ========================================
+
+FUNCTION processAuditLogJob(job):
+    BEGIN
+        auditData = job.data
+        
+        // Step 1: Validate HMAC Signature
+        expectedSignature = generateHMACSignature(auditData)
+        IF auditData.signature_hmac !== expectedSignature THEN
+            // Security alert - potential tampering
+            CALL triggerSecurityAlert("AUDIT_SIGNATURE_MISMATCH", {
+                audit_id: auditData.id,
+                event_type: auditData.event_type,
+                correlation_id: auditData.correlation_id
+            })
+            THROW new Error("Audit log signature validation failed")
+        END IF
+        
+        // Step 2: Store in Database
+        TRY
+            database.createAuditLog(auditData)
+        CATCH DatabaseError as e
+            // Retry logic handled by queue system
+            THROW e
+        END TRY
+        
+        // Step 3: Real-time Notifications (if applicable)
+        IF shouldNotifyRealtime(auditData.event_type) THEN
+            realtimeService.broadcast("audit_events", {
+                event_type: auditData.event_type,
+                timestamp: auditData.event_time,
+                actor_user_id: auditData.actor_user_id,
+                correlation_id: auditData.correlation_id
+            })
+        END IF
+        
+        // Step 4: Security Monitoring
+        CALL performSecurityAnalysis(auditData)
+        
+        // Step 5: Compliance Processing
+        IF isComplianceEvent(auditData.event_type) THEN
+            CALL processComplianceEvent(auditData)
+        END IF
+        
+        // Step 6: Update Processing Metrics
+        metrics.incrementCounter("audit.events.processed", {
+            event_type: auditData.event_type,
+            service: auditData.service_name
+        })
+    END
+
+// ========================================
+// SECURITY MONITORING FLOW
+// ========================================
+
+FUNCTION performSecurityAnalysis(auditData):
+    BEGIN
+        // Step 1: Check for Suspicious Patterns
+        suspiciousPatterns = [
+            checkFailedLoginAttempts(auditData),
+            checkPrivilegeEscalation(auditData),
+            checkUnusualDataAccess(auditData),
+            checkAPIAbuse(auditData)
+        ]
+        
+        // Step 2: Process Each Pattern
+        FOR EACH pattern IN suspiciousPatterns DO
+            IF pattern.detected THEN
+                CALL handleSecurityPattern(pattern, auditData)
+            END IF
+        END FOR
+        
+        // Step 3: Update Security Metrics
+        metrics.recordSecurityEvent(auditData.event_type, auditData.actor_user_id)
+    END
+
+FUNCTION checkFailedLoginAttempts(auditData):
+    BEGIN
+        IF auditData.event_type === "user.login_failed" THEN
+            // Count failed attempts in last 15 minutes
+            recentFailures = database.countAuditLogs({
+                event_type: "user.login_failed",
+                actor_user_id: auditData.actor_user_id,
+                time_window: 15_MINUTES
+            })
+            
+            IF recentFailures >= 5 THEN
+                RETURN {
+                    detected: true,
+                    type: "EXCESSIVE_FAILED_LOGINS",
+                    severity: "HIGH",
+                    count: recentFailures,
+                    user_id: auditData.actor_user_id
+                }
+            END IF
+        END IF
+        
+        RETURN { detected: false }
+    END
+
+FUNCTION checkPrivilegeEscalation(auditData):
+    BEGIN
+        IF auditData.event_type === "user.role_changed" THEN
+            oldRoles = auditData.payload.old_roles || []
+            newRoles = auditData.payload.new_roles || []
+            
+            // Check if admin role was added
+            IF NOT oldRoles.includes("admin") AND newRoles.includes("admin") THEN
+                RETURN {
+                    detected: true,
+                    type: "PRIVILEGE_ESCALATION",
+                    severity: "CRITICAL",
+                    user_id: auditData.actor_user_id,
+                    changed_by: auditData.payload.changed_by
+                }
+            END IF
+        END IF
+        
+        RETURN { detected: false }
+    END
+
+FUNCTION checkUnusualDataAccess(auditData):
+    BEGIN
+        IF auditData.event_type.startsWith("data.access") THEN
+            // Check access patterns
+            recentAccess = database.countAuditLogs({
+                event_type_pattern: "data.access.*",
+                actor_user_id: auditData.actor_user_id,
+                time_window: 1_HOUR
+            })
+            
+            // Get user's normal access pattern
+            normalPattern = getUserAccessPattern(auditData.actor_user_id)
+            
+            IF recentAccess > normalPattern.threshold * 3 THEN
+                RETURN {
+                    detected: true,
+                    type: "UNUSUAL_DATA_ACCESS",
+                    severity: "MEDIUM",
+                    access_count: recentAccess,
+                    normal_threshold: normalPattern.threshold
+                }
+            END IF
+        END IF
+        
+        RETURN { detected: false }
+    END
+
+// ========================================
+// SECURITY ALERT HANDLING
+// ========================================
+
+FUNCTION handleSecurityPattern(pattern, auditData):
+    BEGIN
+        // Step 1: Create Security Event
+        securityEvent = {
+            id: generateUUID(),
+            event_type: pattern.type,
+            severity: pattern.severity,
+            detected_at: NOW(),
+            audit_log_id: auditData.id,
+            user_id: auditData.actor_user_id,
+            details: pattern,
+            correlation_id: auditData.correlation_id,
+            resolved: false
+        }
+        
+        // Step 2: Store Security Event
+        database.createSecurityEvent(securityEvent)
+        
+        // Step 3: Trigger Automated Response
+        SWITCH pattern.severity:
+            CASE "CRITICAL":
+                CALL triggerCriticalSecurityResponse(securityEvent, auditData)
+            CASE "HIGH":
+                CALL triggerHighSecurityResponse(securityEvent, auditData)
+            CASE "MEDIUM":
+                CALL triggerMediumSecurityResponse(securityEvent, auditData)
+        END SWITCH
+        
+        // Step 4: Notify Security Team
+        CALL notifySecurityTeam(securityEvent, auditData)
+        
+        // Step 5: Update Security Metrics
+        metrics.incrementCounter("security.alerts.triggered", {
+            type: pattern.type,
+            severity: pattern.severity
+        })
+    END
+
+FUNCTION triggerCriticalSecurityResponse(securityEvent, auditData):
+    BEGIN
+        // Step 1: Immediate Account Lockout (if user-related)
+        IF securityEvent.user_id IS NOT NULL THEN
+            userService.lockAccount(securityEvent.user_id, {
+                reason: "Security alert: " + securityEvent.event_type,
+                locked_by: "system",
+                correlation_id: auditData.correlation_id
+            })
+        END IF
+        
+        // Step 2: Revoke All Sessions
+        IF securityEvent.user_id IS NOT NULL THEN
+            authService.revokeAllUserSessions(securityEvent.user_id)
+        END IF
+        
+        // Step 3: Immediate Notification
+        alertService.sendImmediateAlert("CRITICAL_SECURITY_EVENT", {
+            event: securityEvent,
+            audit_data: auditData
+        })
+        
+        // Step 4: Log Response Actions
+        auditLogger.log("security.response.critical", "system", {
+            security_event_id: securityEvent.id,
+            actions_taken: ["account_locked", "sessions_revoked", "team_notified"],
+            correlation_id: auditData.correlation_id
+        })
+    END
+
+// ========================================
+// SYSTEM MONITORING FLOW
+// ========================================
+
+FUNCTION performSystemHealthCheck():
+    BEGIN
+        healthStatus = {
+            timestamp: NOW(),
+            service: getServiceName(),
+            version: getServiceVersion(),
+            status: "healthy",
+            checks: {}
+        }
+        
+        // Step 1: Database Health Check
+        healthStatus.checks.database = CALL checkDatabaseHealth()
+        
+        // Step 2: Queue Health Check
+        healthStatus.checks.queue = CALL checkQueueHealth()
+        
+        // Step 3: Cache Health Check
+        healthStatus.checks.cache = CALL checkCacheHealth()
+        
+        // Step 4: External Services Health Check
+        healthStatus.checks.external_services = CALL checkExternalServicesHealth()
+        
+        // Step 5: Determine Overall Status
+        healthStatus.status = determineOverallHealth(healthStatus.checks)
+        
+        // Step 6: Update Metrics
+        metrics.recordHealthCheck(healthStatus)
+        
+        // Step 7: Alert if Unhealthy
+        IF healthStatus.status !== "healthy" THEN
+            CALL handleUnhealthyService(healthStatus)
+        END IF
+        
+        RETURN healthStatus
+    END
+
+FUNCTION checkDatabaseHealth():
+    BEGIN
+        TRY
+            startTime = NOW()
+            result = database.query("SELECT 1")
+            responseTime = NOW() - startTime
+            
+            RETURN {
+                status: "healthy",
+                response_time_ms: responseTime,
+                details: "Database connection successful"
+            }
+        CATCH DatabaseError as e
+            RETURN {
+                status: "unhealthy",
+                error: e.message,
+                details: "Database connection failed"
+            }
+        END TRY
+    END
+
+FUNCTION checkQueueHealth():
+    BEGIN
+        TRY
+            startTime = NOW()
+            queueStats = rabbitMQ.getQueueStats()
+            responseTime = NOW() - startTime
+            
+            // Check for stuck queues
+            stuckQueues = queueStats.filter(q => 
+                q.messages > 1000 AND q.consumers === 0
+            )
+            
+            status = stuckQueues.length > 0 ? "degraded" : "healthy"
+            
+            RETURN {
+                status: status,
+                response_time_ms: responseTime,
+                queue_count: queueStats.length,
+                stuck_queues: stuckQueues.length,
+                details: "Queue system operational"
+            }
+        CATCH QueueError as e
+            RETURN {
+                status: "unhealthy",
+                error: e.message,
+                details: "Queue connection failed"
+            }
+        END TRY
+    END
+
+// ========================================
+// COMPLIANCE REPORTING FLOW
+// ========================================
+
+FUNCTION generateComplianceReport(reportType, dateRange):
+    BEGIN
+        correlationId = generateCorrelationId()
+        
+        // Step 1: Validate Report Type
+        IF NOT isValidComplianceReportType(reportType) THEN
+            THROW new Error("Invalid compliance report type")
+        END IF
+        
+        // Step 2: Query Relevant Audit Logs
+        auditLogs = database.findAuditLogs({
+            event_types: getEventTypesForReport(reportType),
+            date_range: dateRange,
+            include_payload: true
+        })
+        
+        // Step 3: Process Data Based on Report Type
+        reportData = SWITCH reportType:
+            CASE "PCI_DSS":
+                RETURN processPCIDSSReport(auditLogs, dateRange)
+            CASE "GDPR":
+                RETURN processGDPRReport(auditLogs, dateRange)
+            CASE "SOX":
+                RETURN processSOXReport(auditLogs, dateRange)
+            DEFAULT:
+                RETURN processGenericReport(auditLogs, dateRange)
+        END SWITCH
+        
+        // Step 4: Generate Report Document
+        report = {
+            id: generateUUID(),
+            type: reportType,
+            date_range: dateRange,
+            generated_at: NOW(),
+            data: reportData,
+            correlation_id: correlationId
+        }
+        
+        // Step 5: Store Report
+        database.createComplianceReport(report)
+        
+        // Step 6: Log Report Generation
+        auditLogger.log("compliance.report_generated", "system", {
+            report_id: report.id,
+            report_type: reportType,
+            date_range: dateRange,
+            record_count: auditLogs.length
+        }, { correlation_id: correlationId })
+        
+        RETURN report
+    END
+
+// ========================================
+// HELPER FUNCTIONS
+// ========================================
+
+FUNCTION generateHMACSignature(auditData):
+    // Create signature from critical fields
+    signatureData = {
+        event_time: auditData.event_time,
+        actor_user_id: auditData.actor_user_id,
+        event_type: auditData.event_type,
+        payload: auditData.payload,
+        correlation_id: auditData.correlation_id
+    }
+    
+    dataString = JSON.stringify(signatureData, Object.keys(signatureData).sort())
+    RETURN crypto.createHmac('sha256', AUDIT_HMAC_SECRET)
+        .update(dataString)
+        .digest('hex')
+
+FUNCTION sanitizePayload(payload):
+    // Remove sensitive data from payload
+    sanitized = { ...payload }
+    
+    // Remove password fields
+    DELETE sanitized.password
+    DELETE sanitized.password_hash
+    DELETE sanitized.current_password
+    DELETE sanitized.new_password
+    
+    // Mask credit card numbers
+    IF sanitized.card_number THEN
+        sanitized.card_number = maskCardNumber(sanitized.card_number)
+    END IF
+    
+    // Mask phone numbers (keep last 4 digits)
+    IF sanitized.phone THEN
+        sanitized.phone = maskPhoneNumber(sanitized.phone)
+    END IF
+    
+    RETURN sanitized
+
+FUNCTION isValidEventType(eventType):
+    validEventTypes = [
+        "user.created", "user.updated", "user.deleted", "user.login", "user.logout",
+        "payment.initiated", "payment.succeeded", "payment.failed", "payment.cancelled",
+        "logbook.created", "logbook.updated", "logbook.reconciled",
+        "pricing.updated", "pricing.created",
+        "admin.action", "system.error", "security.alert"
+    ]
+    RETURN validEventTypes.includes(eventType)
+
+FUNCTION isCriticalEvent(eventType):
+    criticalEvents = [
+        "security.alert", "admin.action", "user.role_changed",
+        "payment.succeeded", "payment.failed", "system.error"
+    ]
+    RETURN criticalEvents.includes(eventType)
+
+FUNCTION getPriorityForEventType(eventType):
+    IF isCriticalEvent(eventType) THEN
+        RETURN 10 // High priority
+    ELSE IF eventType.startsWith("payment.") THEN
+        RETURN 5 // Medium priority
+    ELSE
+        RETURN 1 // Normal priority
+    END IF
