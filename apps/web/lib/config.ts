@@ -18,6 +18,35 @@ export const config = {
     anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
   },
 
+  // Redis Configuration
+  redis: {
+    url: process.env.NEXT_PUBLIC_UPSTASH_REDIS_REST_URL || '',
+    token: process.env.NEXT_PUBLIC_UPSTASH_REDIS_REST_TOKEN || '',
+    enabled: process.env.NEXT_PUBLIC_ENABLE_REDIS_CACHE === 'true',
+    // Cache TTL settings (in seconds)
+    ttl: {
+      userSession: 1800, // 30 minutes
+      companyData: 3600, // 1 hour
+      transactions: 300,  // 5 minutes
+      employees: 1800,    // 30 minutes
+      notifications: 600,  // 10 minutes
+      stats: 300,         // 5 minutes
+      settings: 7200,     // 2 hours
+      pricing: 3600,      // 1 hour
+      currencyRates: 86400, // 24 hours
+      staticContent: 604800 // 7 days
+    },
+    // Cache invalidation patterns
+    invalidation: {
+      userPattern: 'user:*',
+      companyPattern: 'company:*',
+      globalPattern: 'global:*',
+      transactionPattern: 'transactions:*',
+      employeePattern: 'employees:*',
+      notificationPattern: 'notifications:*'
+    }
+  },
+
   // Application Configuration
   app: {
     name: process.env.NEXT_PUBLIC_APP_NAME || 'CalvaryPay',
@@ -38,6 +67,9 @@ export const config = {
     offlineMode: process.env.NEXT_PUBLIC_ENABLE_OFFLINE_MODE === 'true',
     realtimeUpdates: process.env.NEXT_PUBLIC_ENABLE_REALTIME_UPDATES === 'true',
     analytics: process.env.NEXT_PUBLIC_ENABLE_ANALYTICS === 'true',
+    redisCache: process.env.NEXT_PUBLIC_ENABLE_REDIS_CACHE === 'true',
+    requestDeduplication: process.env.NEXT_PUBLIC_ENABLE_REQUEST_DEDUPLICATION === 'true',
+    prefetching: process.env.NEXT_PUBLIC_ENABLE_PREFETCHING === 'true',
   },
 
   // Payment Configuration
@@ -111,3 +143,4 @@ export type Config = typeof config;
 export type ApiConfig = typeof config.api;
 export type AuthConfig = typeof config.auth;
 export type FeatureFlags = typeof config.features;
+export type RedisConfig = typeof config.redis;

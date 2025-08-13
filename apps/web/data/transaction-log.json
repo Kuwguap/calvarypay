@@ -1,0 +1,20 @@
+[
+  {
+    "transactionId": "txn_alloc_1755106479523_wa40d3ija",
+    "type": "budget_allocation",
+    "fromUserId": "1fb6c5e8-4d64-437d-a345-58ad93dd10de",
+    "toUserId": "ff0d6f6f-3f2c-4c91-8c4a-e8d186d20718",
+    "amount": 100,
+    "currency": "GHS",
+    "description": "Budget allocation: general - Budget allocation: general",
+    "reference": "alloc_1755106479523_wa40d3ija",
+    "status": "completed",
+    "timestamp": "2025-08-13T17:34:39.525Z",
+    "metadata": {
+      "budgetType": "general",
+      "allocatedBy": "1fb6c5e8-4d64-437d-a345-58ad93dd10de",
+      "expiryDate": ""
+    },
+    "lastUpdated": "2025-08-13T17:42:35.213Z"
+  }
+]

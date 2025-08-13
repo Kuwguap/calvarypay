@@ -1,0 +1,33 @@
+{
+  "1fb6c5e8-4d64-437d-a345-58ad93dd10de": {
+    "balance": 300,
+    "currency": "GHS",
+    "lastUpdated": "2025-08-13T17:34:39.527Z",
+    "transactions": [
+      {
+        "id": "company_1755104974045_76nhjfvd3",
+        "amount": 200,
+        "type": "credit",
+        "reference": "company_1755104974045_76nhjfvd3",
+        "purpose": "company_deposit",
+        "timestamp": "2025-08-13T17:09:49.517Z"
+      },
+      {
+        "id": "company_1755104974045_76nhjfvd3",
+        "amount": 200,
+        "type": "credit",
+        "reference": "company_1755104974045_76nhjfvd3",
+        "purpose": "company_deposit",
+        "timestamp": "2025-08-13T17:09:49.518Z"
+      },
+      {
+        "id": "alloc_1755106479523_wa40d3ija",
+        "amount": 100,
+        "type": "debit",
+        "reference": "alloc_1755106479523_wa40d3ija",
+        "purpose": "Budget allocation to employee: johndoe@example.con",
+        "timestamp": "2025-08-13T17:34:39.527Z"
+      }
+    ]
+  }
+}

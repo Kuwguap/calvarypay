@@ -16,11 +16,13 @@ export default function DashboardRedirect() {
   useEffect(() => {
     // Wait for auth state to be determined
     if (isLoading) {
+      console.log('📍 Dashboard Redirect: Auth loading, waiting...')
       return
     }
 
     // If not authenticated, redirect to signin
     if (!isAuthenticated || !user) {
+      console.log('📍 Dashboard Redirect: Not authenticated, redirecting to signin')
       router.push('/auth/signin')
       return
     }

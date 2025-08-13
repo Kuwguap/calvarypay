@@ -39,44 +39,16 @@ export async function GET(request: NextRequest) {
     // Get merchant's company ID
     const companyId = user.userId
 
-    // Fetch recent transactions for the company
-    const { data: transactions, error: transactionsError } = await supabase
-      .from('transactions')
-      .select(`
-        id,
-        reference,
-        amount,
-        currency,
-        status,
-        description,
-        created_at,
-        metadata,
-        users!inner(
-          id,
-          first_name,
-          last_name,
-          email,
-          company_id
-        )
-      `)
-      .eq('users.company_id', companyId)
-      .order('created_at', { ascending: false })
-      .limit(limit)
-
-    if (transactionsError) {
-      console.error('Recent transactions fetch error:', transactionsError)
-      return NextResponse.json(
-        { error: { message: 'Failed to fetch recent transactions' } },
-        { status: 500 }
-      )
-    }
+    // For now, return empty transactions since the transactions table doesn't exist
+    // TODO: Create transactions table and implement proper transaction fetching
+    const transactions = []
 
     // Format the response
     const formattedTransactions = transactions.map(transaction => ({
       id: transaction.id,
       reference: transaction.reference,
-      employee: `${transaction.users.first_name} ${transaction.users.last_name}`,
-      employeeEmail: transaction.users.email,
+      employee: `${transaction.calvary_users.first_name} ${transaction.calvary_users.last_name}`,
+      employeeEmail: transaction.calvary_users.email,
       amount: transaction.amount,
       currency: transaction.currency,
       status: transaction.status,

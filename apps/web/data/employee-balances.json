@@ -1,0 +1,32 @@
+{
+  "ff0d6f6f-3f2c-4c91-8c4a-e8d186d20718": {
+    "balance": 100,
+    "currency": "GHS",
+    "lastUpdated": "2025-08-13T17:42:35.211Z",
+    "allocations": [
+      {
+        "allocationId": "alloc_1755106479523_wa40d3ija",
+        "employeeId": "ff0d6f6f-3f2c-4c91-8c4a-e8d186d20718",
+        "companyId": "1fb6c5e8-4d64-437d-a345-58ad93dd10de",
+        "amount": 100,
+        "currency": "GHS",
+        "budgetType": "general",
+        "description": "Budget allocation: general",
+        "allocatedBy": "1fb6c5e8-4d64-437d-a345-58ad93dd10de",
+        "timestamp": "2025-08-13T17:34:39.523Z",
+        "status": "accepted",
+        "expiryDate": ""
+      }
+    ],
+    "transactions": [
+      {
+        "id": "credit_alloc_1755106479523_wa40d3ija",
+        "amount": 100,
+        "type": "credit",
+        "reference": "alloc_1755106479523_wa40d3ija",
+        "description": "Accepted budget allocation: general",
+        "timestamp": "2025-08-13T17:42:35.212Z"
+      }
+    ]
+  }
+}

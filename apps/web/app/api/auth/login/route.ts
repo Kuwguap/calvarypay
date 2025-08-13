@@ -127,10 +127,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Generate authentication tokens
+    // Generate authentication tokens using enhanced auth middleware
+    const tokenPair = await enhancedAuthMiddleware.generateTokenPair(
+      user.id,
+      user.email,
+      user.role as any
+    )
+
     const tokens = {
-      accessToken: `calvary_access_${Date.now()}_${user.id}`,
-      refreshToken: `calvary_refresh_${Date.now()}_${user.id}`,
+      accessToken: tokenPair.accessToken,
+      refreshToken: tokenPair.refreshToken,
     }
 
     // Transform database user to API response format and sanitize based on permissions

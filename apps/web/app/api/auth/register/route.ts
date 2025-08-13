@@ -3,6 +3,7 @@ import { signUpSchema } from '@/lib/validation-simple'
 import { supabaseService } from '@/lib/supabase'
 import { SecurityMiddleware } from '@/lib/security/middleware'
 import { IDORProtection } from '@/lib/security/idor-protection'
+import { enhancedAuthMiddleware } from '@/lib/auth/enhanced-auth.middleware'
 
 export async function POST(request: NextRequest) {
   try {
@@ -102,9 +103,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Generate authentication tokens using enhanced auth middleware
+    const tokenPair = await enhancedAuthMiddleware.generateTokenPair(
+      newUser.id,
+      newUser.email,
+      newUser.role as any
+    )
+
     const tokens = {
-      accessToken: `calvary_access_${Date.now()}_${newUser.id}`,
-      refreshToken: `calvary_refresh_${Date.now()}_${newUser.id}`,
+      accessToken: tokenPair.accessToken,
+      refreshToken: tokenPair.refreshToken,
     }
 
     const responseUser = {

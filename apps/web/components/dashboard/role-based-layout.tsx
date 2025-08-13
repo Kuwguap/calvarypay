@@ -52,7 +52,7 @@ const navigationItems: NavigationItem[] = [
   { label: 'Wallet', href: '/dashboard/customer/wallet', icon: Wallet, roles: ['customer'] },
   
   // Employee Navigation
-  { label: 'Overview', href: '/dashboard/employee', icon: TrendingUp, roles: ['employee'] },
+  { label: 'Overview', href: '/dashboard/employee', icon: TrendingUp, roles: ['employee'], badge: 'notifications' },
   { label: 'Quick Pay', href: '/dashboard/employee/quick-pay', icon: Send, roles: ['employee'] },
   { label: 'Transactions', href: '/dashboard/employee/transactions', icon: Receipt, roles: ['employee'] },
   { label: 'Reports', href: '/dashboard/employee/reports', icon: FileText, roles: ['employee'] },
@@ -132,7 +132,9 @@ export function RoleBasedLayout({ children }: RoleBasedLayoutProps) {
           <div className="flex items-center space-x-3">
             <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white hover:bg-slate-800 relative">
               <Bell className="w-4 h-4" />
-              <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+              {role === 'employee' && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+              )}
             </Button>
             <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white hover:bg-slate-800">
               <Settings className="w-4 h-4" />
@@ -187,7 +189,12 @@ export function RoleBasedLayout({ children }: RoleBasedLayoutProps) {
                 >
                   <Icon className="w-5 h-5" />
                   <span>{item.label}</span>
-                  {item.badge && (
+                  {item.badge === 'notifications' && role === 'employee' && (
+                    <Badge variant="secondary" className="ml-auto text-xs bg-red-500/20 text-red-400 border-red-500/30">
+                      New
+                    </Badge>
+                  )}
+                  {item.badge && item.badge !== 'notifications' && (
                     <Badge variant="secondary" className="ml-auto text-xs">
                       {item.badge}
                     </Badge>

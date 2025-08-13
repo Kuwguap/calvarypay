@@ -47,8 +47,8 @@ export async function GET(request: NextRequest) {
 
     // Search for users by email
     const { data: users, error: searchError } = await supabase
-      .from('users')
-      .select('id, email, first_name, last_name, role, company_id, is_active')
+      .from('calvary_users')
+      .select('id, email, first_name, last_name, role, is_active')
       .ilike('email', `%${email}%`)
       .eq('role', 'employee')
       .eq('is_active', true)
@@ -67,13 +67,9 @@ export async function GET(request: NextRequest) {
       let status = 'available';
       let statusMessage = 'Available for invitation';
 
-      if (user.company_id === companyId) {
-        status = 'already_member';
-        statusMessage = 'Already part of your company';
-      } else if (user.company_id) {
-        status = 'employed_elsewhere';
-        statusMessage = 'Employed by another company';
-      }
+      // Since company_id column doesn't exist in current schema, 
+      // we'll assume all users are available for invitation
+      // TODO: Add company_id column to calvary_users table when implementing company relationships
 
       return {
         id: user.id,
@@ -89,37 +85,8 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Check for existing invitations to these users
-    if (formattedUsers.length > 0) {
-      const userEmails = formattedUsers.map(u => u.email)
-
-      const { data: existingInvitations, error: invitationError } = await supabase
-        .from('employee_invitations')
-        .select('email, status, created_at, expires_at')
-        .eq('company_id', companyId)
-        .in('email', userEmails)
-        .in('status', ['pending', 'accepted'])
-
-      if (!invitationError && existingInvitations) {
-        // Update user status based on existing invitations
-        formattedUsers.forEach(user => {
-          const invitation = existingInvitations.find(inv => inv.email === user.email)
-          if (invitation) {
-            if (invitation.status === 'pending') {
-              user.status = 'pending_invitation';
-              user.statusMessage = 'Invitation pending';
-              user.canInvite = false;
-            } else if (invitation.status === 'accepted') {
-              user.status = 'invitation_accepted';
-              user.statusMessage = 'Invitation accepted';
-              user.canInvite = false;
-            }
-            user.invitationStatus = invitation.status;
-            user.invitationDate = invitation.created_at;
-          }
-        })
-      }
-    }
+    // TODO: Check for existing invitations when employee_invitations table is created
+    // For now, all users appear as available since we can't check invitation status
 
     // Filter out users that can't be invited (but show them for information)
     const availableUsers = formattedUsers.filter(user => user.canInvite);
@@ -135,7 +102,7 @@ export async function GET(request: NextRequest) {
         resource_id: 'employee_search',
         details: {
           searchTerm: email,
-          resultsCount: filteredUsers.length,
+          resultsCount: formattedUsers.length,
           companyId
         }
       })

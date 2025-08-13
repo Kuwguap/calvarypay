@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
 
     // Get merchant's settings
     const { data: userSettings, error: userError } = await supabase
-      .from('users')
+      .from('calvary_users')
       .select('metadata')
       .eq('id', user.userId)
       .single()
@@ -143,7 +143,7 @@ export async function PATCH(request: NextRequest) {
 
     // Get current user metadata
     const { data: currentUser, error: fetchError } = await supabase
-      .from('users')
+      .from('calvary_users')
       .select('metadata')
       .eq('id', user.userId)
       .single()
@@ -172,7 +172,7 @@ export async function PATCH(request: NextRequest) {
 
     // Update user metadata
     const { data: updatedUser, error: updateError } = await supabase
-      .from('users')
+      .from('calvary_users')
       .update({
         metadata: updatedMetadata,
         updated_at: new Date().toISOString()

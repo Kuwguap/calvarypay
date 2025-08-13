@@ -31,40 +31,137 @@ export function useAuth() {
 
   // Initialize auth state from localStorage on mount (client-side only)
   useEffect(() => {
-    const initializeAuth = () => {
+    const initializeAuth = async () => {
       try {
         // Only run on client side
-        if (typeof window === 'undefined') return
+        if (typeof window === 'undefined') {
+          setAuthState(prev => ({ ...prev, isLoading: false }))
+          return
+        }
+
+        console.log('🔍 Auth: Starting initialization...')
 
         const storedUser = localStorage.getItem('calvarypay_user')
         const storedToken = localStorage.getItem('calvarypay_access_token')
         const storedRefreshToken = localStorage.getItem('calvarypay_refresh_token')
 
         if (storedUser && storedToken) {
-          console.log('🔍 Retrieved tokens from localStorage:', {
-            storedToken: storedToken?.substring(0, 30) + '...',
-            storedRefreshToken: storedRefreshToken?.substring(0, 30) + '...'
-          });
+          console.log('🔍 Auth: Found stored tokens, validating...')
 
-          const user = JSON.parse(storedUser)
-          setAuthState({
-            user: {
-              ...user,
-              accessToken: storedToken,
-              refreshToken: storedRefreshToken
-            },
-            isAuthenticated: true,
-            isLoading: false,
-            error: null
-          })
+          try {
+            const user = JSON.parse(storedUser)
+            
+            // Validate token by making a test API call
+            const response = await fetch('/api/auth/verify-token', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${storedToken}`,
+                'Content-Type': 'application/json'
+              }
+            })
+
+            if (response.ok) {
+              console.log('🔍 Auth: Token valid, restoring session')
+              const userWithTokens = {
+                ...user,
+                accessToken: storedToken,
+                refreshToken: storedRefreshToken
+              }
+              
+              setAuthState({
+                user: userWithTokens,
+                isAuthenticated: true,
+                isLoading: false,
+                error: null
+              })
+            } else {
+              console.log('🔍 Auth: Token invalid, attempting refresh...')
+              // Try to refresh token
+              if (storedRefreshToken) {
+                const refreshResponse = await fetch('/api/auth/refresh', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ refreshToken: storedRefreshToken })
+                })
+
+                if (refreshResponse.ok) {
+                  const refreshData = await refreshResponse.json()
+                  console.log('🔍 Auth: Token refreshed successfully')
+                  
+                  // Update localStorage with new tokens
+                  localStorage.setItem('calvarypay_access_token', refreshData.accessToken)
+                  localStorage.setItem('auth_token', refreshData.accessToken)
+                  if (refreshData.refreshToken) {
+                    localStorage.setItem('calvarypay_refresh_token', refreshData.refreshToken)
+                  }
+
+                  const userWithNewTokens = {
+                    ...user,
+                    accessToken: refreshData.accessToken,
+                    refreshToken: refreshData.refreshToken || storedRefreshToken
+                  }
+                  
+                  setAuthState({
+                    user: userWithNewTokens,
+                    isAuthenticated: true,
+                    isLoading: false,
+                    error: null
+                  })
+                } else {
+                  console.log('🔍 Auth: Token refresh failed, clearing session')
+                  // Clear invalid tokens
+                  localStorage.removeItem('calvarypay_user')
+                  localStorage.removeItem('calvarypay_access_token')
+                  localStorage.removeItem('calvarypay_refresh_token')
+                  localStorage.removeItem('auth_token')
+                  
+                  setAuthState({
+                    user: null,
+                    isAuthenticated: false,
+                    isLoading: false,
+                    error: null
+                  })
+                }
+              } else {
+                console.log('🔍 Auth: No refresh token, clearing session')
+                // Clear invalid tokens
+                localStorage.removeItem('calvarypay_user')
+                localStorage.removeItem('calvarypay_access_token')
+                localStorage.removeItem('calvarypay_refresh_token')
+                localStorage.removeItem('auth_token')
+                
+                setAuthState({
+                  user: null,
+                  isAuthenticated: false,
+                  isLoading: false,
+                  error: null
+                })
+              }
+            }
+          } catch (parseError) {
+            console.error('🔍 Auth: Error parsing stored user data:', parseError)
+            // Clear corrupted data
+            localStorage.removeItem('calvarypay_user')
+            localStorage.removeItem('calvarypay_access_token')
+            localStorage.removeItem('calvarypay_refresh_token')
+            localStorage.removeItem('auth_token')
+            
+            setAuthState({
+              user: null,
+              isAuthenticated: false,
+              isLoading: false,
+              error: null
+            })
+          }
         } else {
+          console.log('🔍 Auth: No stored tokens found')
           setAuthState(prev => ({
             ...prev,
             isLoading: false
           }))
         }
       } catch (error) {
-        console.error('Error initializing auth:', error)
+        console.error('🔍 Auth: Initialization error:', error)
         setAuthState({
           user: null,
           isAuthenticated: false,
@@ -74,9 +171,8 @@ export function useAuth() {
       }
     }
 
-    // Delay initialization to ensure client-side hydration is complete
-    const timer = setTimeout(initializeAuth, 100)
-    return () => clearTimeout(timer)
+    // Initialize immediately (no delay)
+    initializeAuth()
   }, [setAuthState])
 
   // Login function
@@ -130,14 +226,19 @@ export function useAuth() {
         if (data.tokens.refreshToken) {
           localStorage.setItem('calvarypay_refresh_token', data.tokens.refreshToken)
         }
+        
+        // Also store with the key that the API client expects
+        localStorage.setItem('auth_token', data.tokens.accessToken)
       }
 
+      const userWithTokens = {
+        ...user,
+        accessToken: data.tokens.accessToken,
+        refreshToken: data.tokens.refreshToken
+      }
+      
       setAuthState({
-        user: {
-          ...user,
-          accessToken: data.tokens.accessToken,
-          refreshToken: data.tokens.refreshToken
-        },
+        user: userWithTokens,
         isAuthenticated: true,
         isLoading: false,
         error: null
@@ -167,9 +268,11 @@ export function useAuth() {
     }
   }, [setAuthState, router])
 
-  // Logout function
-  const logout = useCallback(async () => {
+  // Logout function (only called on explicit user logout)
+  const logout = useCallback(async (redirectToLogin = true) => {
     try {
+      console.log('🚪 Auth: Explicit logout initiated')
+      
       // Call logout API if refresh token exists (client-side only)
       if (typeof window !== 'undefined') {
         const refreshToken = localStorage.getItem('calvarypay_refresh_token')
@@ -185,13 +288,14 @@ export function useAuth() {
         }
       }
     } catch (error) {
-      console.error('Logout API call failed:', error)
+      console.error('🚪 Auth: Logout API call failed:', error)
     } finally {
       // Clear localStorage (client-side only)
       if (typeof window !== 'undefined') {
         localStorage.removeItem('calvarypay_user')
         localStorage.removeItem('calvarypay_access_token')
         localStorage.removeItem('calvarypay_refresh_token')
+        localStorage.removeItem('auth_token')
       }
 
       // Clear auth state
@@ -202,8 +306,11 @@ export function useAuth() {
         error: null
       })
 
-      // Redirect to login
-      router.push('/auth/login')
+      // Only redirect to login if explicitly requested
+      if (redirectToLogin) {
+        console.log('🚪 Auth: Redirecting to login page')
+        router.push('/auth/signin')
+      }
     }
   }, [authState.user?.accessToken, setAuthState, router])
 
@@ -215,7 +322,7 @@ export function useAuth() {
     const storedRefreshToken = localStorage.getItem('calvarypay_refresh_token')
 
     if (!storedRefreshToken) {
-      logout()
+      logout(false) // Don't redirect, just clear session
       return false
     }
 
@@ -237,6 +344,7 @@ export function useAuth() {
       // Update tokens (client-side only)
       if (typeof window !== 'undefined') {
         localStorage.setItem('calvarypay_access_token', data.accessToken)
+        localStorage.setItem('auth_token', data.accessToken)
         if (data.refreshToken) {
           localStorage.setItem('calvarypay_refresh_token', data.refreshToken)
         }
@@ -254,7 +362,7 @@ export function useAuth() {
       return true
     } catch (error) {
       console.error('Token refresh failed:', error)
-      logout()
+      logout(false) // Don't redirect, just clear session
       return false
     }
   }, [logout, setAuthState])

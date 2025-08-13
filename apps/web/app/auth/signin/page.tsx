@@ -11,8 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CreditCard, Eye, EyeOff, Loader2, AlertCircle, CheckCircle } from "lucide-react"
 import Link from "next/link"
-import { authService } from "@/lib/services/auth.service"
-import { setUserAtom, setLoginLoadingAtom, setAuthErrorAtom, loginLoadingAtom, authErrorAtom, dashboardRouteAtom } from "@/lib/store/auth.store"
+import { useAuth } from "@/lib/hooks/use-auth"
 import { showErrorNotificationAtom, showSuccessNotificationAtom } from "@/lib/store/app.store"
 import { signInSchema, validateField, type SignInFormData } from "@/lib/validation-simple"
 import { FormField } from "@/components/ui/form-field"
@@ -29,13 +28,8 @@ export default function SignInPage() {
   const [fieldValidation, setFieldValidation] = useState<Record<string, { isValid: boolean; isValidating: boolean }>>({})
   const [hasSubmitted, setHasSubmitted] = useState(false)
 
-  // Atoms
-  const [, setUser] = useAtom(setUserAtom)
-  const [, setLoginLoading] = useAtom(setLoginLoadingAtom)
-  const [, setAuthError] = useAtom(setAuthErrorAtom)
-  const [loginLoading] = useAtom(loginLoadingAtom)
-  const [authError] = useAtom(authErrorAtom)
-  const [dashboardRoute] = useAtom(dashboardRouteAtom)
+  // Auth hook
+  const { login, isLoading, error } = useAuth()
   const [, showErrorNotification] = useAtom(showErrorNotificationAtom)
   const [, showSuccessNotification] = useAtom(showSuccessNotificationAtom)
 
@@ -93,48 +87,28 @@ export default function SignInPage() {
     }
 
     console.log('✅ Form validation passed');
-    setLoginLoading(true)
-    setAuthError(null)
 
     try {
       console.log('🚀 Attempting login with:', { email: formData.email });
-      console.log('🌐 API Base URL:', process.env.NEXT_PUBLIC_API_BASE_URL);
 
-      const response = await authService.login({
-        email: formData.email,
-        password: formData.password,
-      })
+      const result = await login(formData.email, formData.password)
 
-      console.log('✅ Login response received:', response);
+      console.log('✅ Login result:', result);
 
-      if (response?.user) {
-        console.log('👤 User found in response:', response.user);
-        setUser(response.user)
-        showSuccessNotification(`Welcome back, ${response.user.firstName}!`)
-
-        // Redirect to appropriate dashboard
-        console.log('🏠 Redirecting to dashboard:', dashboardRoute);
-        router.push(dashboardRoute)
+      if (result.success) {
+        console.log('👤 Login successful:', result.user);
+        showSuccessNotification(`Welcome back, ${result.user.firstName || result.user.email}!`)
+        
+        // The useAuth hook handles redirection automatically
+        console.log('🏠 Redirect handled by useAuth hook');
       } else {
-        console.log('❌ No user in response');
-        throw new Error('Invalid response format')
+        console.log('❌ Login failed:', result.error);
+        showErrorNotification(result.error || "Login failed. Please try again.", "Login Failed")
       }
     } catch (error: any) {
       console.error('💥 Login error in component:', error);
-      console.error('💥 Error details:', {
-        code: error?.code,
-        message: error?.message,
-        statusCode: error?.statusCode,
-        response: error?.response?.data
-      });
-
-      const errorMessage = error?.message || error?.response?.data?.error?.message || "Login failed. Please try again."
-      console.log('📝 Setting error message:', errorMessage);
-      setAuthError(errorMessage)
+      const errorMessage = error?.message || "Login failed. Please try again."
       showErrorNotification(errorMessage, "Login Failed")
-    } finally {
-      console.log('🏁 Login attempt finished');
-      setLoginLoading(false)
     }
   }
 
@@ -168,10 +142,10 @@ export default function SignInPage() {
           <CardHeader className="text-center">
             <CardTitle className="text-2xl font-bold text-gray-900">Welcome back</CardTitle>
             <CardDescription className="text-gray-600">Sign in to your CalvaryPay account to continue</CardDescription>
-            {authError && (
+            {error && (
               <div className="flex items-center gap-2 p-3 mt-4 bg-red-50 border border-red-200 rounded-lg">
                 <AlertCircle className="w-4 h-4 text-red-600" />
-                <span className="text-sm text-red-600">{authError}</span>
+                <span className="text-sm text-red-600">{error}</span>
               </div>
             )}
           </CardHeader>
@@ -187,6 +161,7 @@ export default function SignInPage() {
                 error={fieldErrors.email}
                 isValidating={fieldValidation.email?.isValidating}
                 isValid={fieldValidation.email?.isValid}
+                autoComplete="email"
                 required
                 inputClassName="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
               />
@@ -206,6 +181,7 @@ export default function SignInPage() {
                       fieldErrors.password ? 'border-red-500 focus:border-red-500' :
                       fieldValidation.password?.isValid ? 'border-green-500' : ''
                     }`}
+                    autoComplete="current-password"
                     required
                   />
                   <button
@@ -254,10 +230,10 @@ export default function SignInPage() {
 
               <Button
                 type="submit"
-                disabled={loginLoading || (hasSubmitted && Object.keys(fieldErrors).length > 0)}
+                disabled={isLoading || (hasSubmitted && Object.keys(fieldErrors).length > 0)}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
               >
-                {loginLoading ? (
+                {isLoading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     Signing In...

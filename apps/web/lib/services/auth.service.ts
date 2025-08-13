@@ -275,11 +275,15 @@ export class AuthService {
       try {
         if (token.startsWith('calvary_access_')) {
           // Our simple token format: calvary_access_${timestamp}_${userId}
-          const parts = token.split('_');
-          if (parts.length >= 3) {
-            userId = parts.slice(2).join('_'); // Handle UUIDs with underscores
+          // Remove the prefix and split by the last underscore
+          const withoutPrefix = token.replace('calvary_access_', '');
+          const lastUnderscoreIndex = withoutPrefix.lastIndexOf('_');
+          
+          if (lastUnderscoreIndex !== -1) {
+            // Extract the UUID from the end
+            userId = withoutPrefix.substring(lastUnderscoreIndex + 1);
           } else {
-            console.error('Invalid token format - not enough parts');
+            console.error('Invalid token format - no underscore found after prefix');
             return null;
           }
         } else {
@@ -306,7 +310,7 @@ export class AuthService {
       // Get user from database
       const { supabase } = await import('@/lib/supabase');
       const { data: user, error: userError } = await supabase
-        .from('users')
+        .from('calvary_users')
         .select('id, email, first_name, last_name, phone, role, is_active, email_verified, phone_verified, created_at, updated_at')
         .eq('id', userId)
         .single();

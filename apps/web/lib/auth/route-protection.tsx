@@ -117,6 +117,7 @@ export function RouteProtection({
       
       // Wait for auth state to be determined
       if (isLoading) {
+        console.log('🔒 Route Protection: Auth still loading, waiting...')
         return
       }
       
@@ -125,13 +126,14 @@ export function RouteProtection({
       const isPublicRoute = publicRoutes.includes(pathname)
       
       if (isPublicRoute) {
+        console.log('🔒 Route Protection: Public route, allowing access')
         setIsChecking(false)
         return
       }
       
       // Check if user is authenticated
       if (!user) {
-        console.log('🔒 User not authenticated, redirecting to signin')
+        console.log('🔒 Route Protection: User not authenticated, redirecting to signin')
         router.push('/auth/signin')
         return
       }

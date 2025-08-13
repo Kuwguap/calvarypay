@@ -47,6 +47,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/uuid": "^10.0.0",
+    "@upstash/redis": "^1.35.3",
     "autoprefixer": "^10.4.20",
     "axios": "^1.6.2",
     "bcryptjs": "^3.0.2",

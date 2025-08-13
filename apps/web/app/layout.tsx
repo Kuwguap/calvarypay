@@ -1,72 +1,60 @@
-import type React from "react"
-import type { Metadata } from "next"
-import { GeistSans } from "geist/font/sans"
-import { GeistMono } from "geist/font/mono"
+import type { Metadata, Viewport } from "next"
+import { Inter } from "next/font/google"
 import "./globals.css"
-import { ThemeProvider } from "@/components/theme-provider"
-import { QueryProvider } from "@/lib/providers/query-provider"
 import { JotaiProvider } from "@/lib/providers/jotai-provider"
+import { RedisQueryProvider } from "@/lib/providers/redis-query-provider"
 import { OfflineProvider } from "@/lib/providers/offline-provider"
-import { AsyncErrorBoundary } from "@/components/error-boundary"
 import { NotificationProvider } from "@/components/ui/notification-system"
-import { ClientOnly } from "@/components/client-only"
+
+const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "CalvaryPay - Digital Payment & Logbook Platform",
-  description:
-    "A comprehensive digital payment and logbook management platform with offline capabilities, real-time reconciliation, and enterprise-grade security.",
-  generator: "CalvaryPay",
+  title: "CalvaryPay - Digital Payment Solutions",
+  description: "Secure, fast, and reliable digital payment solutions for businesses and individuals",
   manifest: "/manifest.json",
   icons: {
-    icon: "/icons/icon-192x192.png",
-    apple: "/icons/icon-192x192.png",
+    icon: [
+      { url: "/icons/icon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/icons/icon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icons/icon-96x96.png", sizes: "96x96", type: "image/png" },
+    ],
+    apple: [
+      { url: "/icons/icon-152x152.png", sizes: "152x152", type: "image/png" },
+      { url: "/icons/icon-180x180.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "CalvaryPay",
   },
 }
 
-export const viewport = {
+export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: "#000000",
+  userScalable: false,
+  themeColor: "#1e293b",
 }
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode
-}>) {
+}) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <style>{`
-html {
-  font-family: ${GeistSans.style.fontFamily};
-  --font-sans: ${GeistSans.variable};
-  --font-mono: ${GeistMono.variable};
-}
-        `}</style>
-      </head>
-      <body className={`${GeistSans.variable} ${GeistMono.variable} font-sans antialiased`}>
-        <AsyncErrorBoundary>
-          <JotaiProvider>
-            <QueryProvider>
-              <ThemeProvider
-                attribute="class"
-                defaultTheme="dark"
-                enableSystem={false}
-                disableTransitionOnChange
-              >
-                <NotificationProvider>
-                  <ClientOnly>
-                    <OfflineProvider>
-                      {children}
-                    </OfflineProvider>
-                  </ClientOnly>
-                </NotificationProvider>
-              </ThemeProvider>
-            </QueryProvider>
-          </JotaiProvider>
-        </AsyncErrorBoundary>
+    <html lang="en">
+      <body className={inter.className}>
+        <JotaiProvider>
+          <RedisQueryProvider>
+            <NotificationProvider>
+              <OfflineProvider>
+                {children}
+              </OfflineProvider>
+            </NotificationProvider>
+          </RedisQueryProvider>
+        </JotaiProvider>
       </body>
     </html>
   )

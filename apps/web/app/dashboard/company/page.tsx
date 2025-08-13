@@ -31,7 +31,9 @@ import {
   AlertCircle,
   Activity,
   Wallet,
-  Eye
+  Eye,
+  Download,
+  Upload
 } from "lucide-react"
 import Link from "next/link"
 import { MerchantLayout } from "@/components/dashboard/role-based-layout"
@@ -47,6 +49,7 @@ interface DashboardStats {
   pendingApprovals: number
   successRate: number
   monthlyGrowth: number
+  accountBalance: number
 }
 
 interface RecentTransaction {
@@ -190,6 +193,19 @@ function CompanyDashboard() {
               <RefreshCw className={`w-4 h-4 mr-2 ${statsLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
+            
+            <Link href="/dashboard/company/deposit">
+              <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                <Upload className="w-4 h-4 mr-2" />
+                Company Deposit
+              </Button>
+            </Link>
+            <Link href="/dashboard/company/budget">
+              <Button className="bg-purple-600 hover:bg-purple-700 text-white">
+                <DollarSign className="w-4 h-4 mr-2" />
+                Budget Allocation
+              </Button>
+            </Link>
             <Link href="/dashboard/company/employees">
               <Button className="bg-blue-600 hover:bg-blue-700 text-white">
                 <Users className="w-4 h-4 mr-2" />
@@ -210,7 +226,42 @@ function CompanyDashboard() {
         )}
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+          {/* Account Balance */}
+          <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-slate-400 text-sm font-medium">Account Balance</p>
+                  {statsLoading ? (
+                    <Skeleton className="h-8 w-24 bg-slate-700 mt-2" />
+                  ) : (
+                    <p className="text-2xl font-bold text-white">
+                      {formatCurrency(dashboardStats?.accountBalance || 0, 'GHS')}
+                    </p>
+                  )}
+                </div>
+                <div className="p-3 bg-purple-500/20 rounded-lg">
+                  <DollarSign className="w-6 h-6 text-purple-400" />
+                </div>
+              </div>
+              <div className="flex items-center justify-between mt-4">
+                <Link href="/dashboard/company/deposit" className="text-purple-400 text-sm hover:text-purple-300">
+                  Add funds →
+                </Link>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => refetchStats()}
+                  disabled={statsLoading}
+                  className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/20"
+                >
+                  <RefreshCw className={`w-4 h-4 ${statsLoading ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Total Revenue */}
           <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
             <CardContent className="p-6">
@@ -304,7 +355,7 @@ function CompanyDashboard() {
                 <div>
                   <p className="text-slate-400 text-sm font-medium">Pending Approvals</p>
                   {statsLoading ? (
-                    <Skeleton className="h-8 w-8 bg-slate-700 mt-2" />
+                    <Skeleton className="h-8 w-12 bg-slate-700 mt-2" />
                   ) : (
                     <p className="text-2xl font-bold text-white">
                       {dashboardStats?.pendingApprovals || 0}
@@ -316,9 +367,9 @@ function CompanyDashboard() {
                 </div>
               </div>
               <div className="flex items-center mt-4">
-                <Link href="/dashboard/company/transactions?status=pending" className="text-blue-400 text-sm hover:text-blue-300">
-                  Review pending →
-                </Link>
+                <span className="text-yellow-400 text-sm">
+                  Requires attention
+                </span>
               </div>
             </CardContent>
           </Card>
@@ -484,45 +535,67 @@ function CompanyDashboard() {
         </div>
 
         {/* Quick Actions */}
-        <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="text-white text-xl font-semibold">Quick Actions</CardTitle>
-            <CardDescription className="text-slate-400">
-              Common tasks and shortcuts
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Link href="/dashboard/company/employees">
-                <Button variant="outline" className="w-full h-20 border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent flex flex-col">
-                  <Users className="w-6 h-6 mb-2 text-purple-400" />
-                  <span>Manage Employees</span>
-                </Button>
-              </Link>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm hover:bg-slate-900/70 transition-all duration-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-white text-lg font-semibold flex items-center">
+                <Users className="w-5 h-5 mr-2 text-blue-400" />
+                Manage Employees
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-slate-400 text-sm mb-4">
+                Add, remove, and manage your team members
+              </p>
+              <Button asChild className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+                <Link href="/dashboard/company/employees">
+                  <Users className="w-4 h-4 mr-2" />
+                  Manage Team
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
 
-              <Link href="/dashboard/company/transactions">
-                <Button variant="outline" className="w-full h-20 border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent flex flex-col">
-                  <Activity className="w-6 h-6 mb-2 text-blue-400" />
-                  <span>View Transactions</span>
-                </Button>
-              </Link>
+          <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm hover:bg-slate-900/70 transition-all duration-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-white text-lg font-semibold flex items-center">
+                <Upload className="w-5 h-5 mr-2 text-emerald-400" />
+                Company Deposit
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-slate-400 text-sm mb-4">
+                Add funds to your company account via Paystack
+              </p>
+              <Button asChild className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">
+                <Link href="/dashboard/company/deposit">
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Deposit Funds
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
 
-              <Link href="/dashboard/company/analytics">
-                <Button variant="outline" className="w-full h-20 border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent flex flex-col">
-                  <BarChart3 className="w-6 h-6 mb-2 text-emerald-400" />
-                  <span>Analytics</span>
-                </Button>
-              </Link>
-
-              <Link href="/dashboard/company/settings">
-                <Button variant="outline" className="w-full h-20 border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent flex flex-col">
-                  <Settings className="w-6 h-6 mb-2 text-yellow-400" />
-                  <span>Settings</span>
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
+          <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm hover:bg-slate-900/70 transition-all duration-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-white text-lg font-semibold flex items-center">
+                <Activity className="w-5 h-5 mr-2 text-purple-400" />
+                View Reports
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-slate-400 text-sm mb-4">
+                Generate and view detailed financial reports
+              </p>
+              <Button asChild className="w-full bg-purple-600 hover:bg-purple-700 text-white">
+                <Link href="/dashboard/company/reports">
+                  <Download className="w-4 h-4 mr-2" />
+                  View Reports
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </MerchantLayout>
   )

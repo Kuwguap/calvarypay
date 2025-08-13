@@ -1,139 +1,92 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
-import { authService } from '@/lib/services/auth.service'
+import { supabaseService } from '@/lib/supabase'
+import { verifyPaymentAuth, verifyPaymentRole, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth/payment-auth'
+import { BalanceService } from '@/lib/services/balance.service'
 
 export async function GET(request: NextRequest) {
   try {
-    // Get authorization header
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: { message: 'Authorization token required' } },
-        { status: 401 }
-      )
+    console.log('📊 Dashboard Stats API: Starting stats fetch...')
+
+    // Verify authentication
+    const authResult = await verifyPaymentAuth(request)
+    if (!authResult.success || !authResult.user) {
+      console.log('📊 Dashboard Stats API: Authentication failed:', authResult.error)
+      return createUnauthorizedResponse(authResult.error || 'Authentication failed')
     }
 
-    const token = authHeader.substring(7)
-    
-    // Verify token and get user
-    const user = await authService.verifyToken(token)
-    if (!user) {
-      return NextResponse.json(
-        { error: { message: 'Invalid or expired token' } },
-        { status: 401 }
-      )
+    // Verify user has permission to view dashboard stats
+    if (!verifyPaymentRole(authResult.user, ['merchant', 'admin'])) {
+      console.log('📊 Dashboard Stats API: Insufficient permissions for user:', authResult.user.role)
+      return createForbiddenResponse('Only merchants and admins can view dashboard stats')
     }
 
-    // Only allow merchants to access this endpoint
-    if (user.role !== 'merchant') {
-      return NextResponse.json(
-        { error: { message: 'Access denied. Merchant role required.' } },
-        { status: 403 }
-      )
-    }
+    const { user } = authResult
+    console.log('📊 Dashboard Stats API: Fetching stats for user:', user.userId)
 
-    // Get merchant's company ID (assuming user.userId is the company owner)
-    const companyId = user.userId
-
-    // Calculate date ranges
-    const now = new Date()
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0)
-
-    // Fetch all transactions for the company (from employees)
-    const { data: allTransactions, error: transactionsError } = await supabase
-      .from('transactions')
-      .select(`
-        *,
-        users!inner(company_id)
-      `)
-      .eq('users.company_id', companyId)
-      .order('created_at', { ascending: false })
-
-    if (transactionsError) {
-      console.error('Transactions fetch error:', transactionsError)
-      return NextResponse.json(
-        { error: { message: 'Failed to fetch transactions' } },
-        { status: 500 }
-      )
-    }
-
-    // Fetch company employees
-    const { data: employees, error: employeesError } = await supabase
-      .from('users')
-      .select('id, first_name, last_name, email, is_active, last_login')
-      .eq('company_id', companyId)
+    // Fetch total employees
+    const { count: activeEmployees, error: employeesError } = await supabaseService.client
+      .from('calvary_users')
+      .select('*', { count: 'exact', head: true })
       .eq('role', 'employee')
+      .eq('is_active', true)
 
     if (employeesError) {
-      console.error('Employees fetch error:', employeesError)
-      return NextResponse.json(
-        { error: { message: 'Failed to fetch employees' } },
-        { status: 500 }
-      )
+      console.error('📊 Dashboard Stats API: Error fetching employees:', employeesError)
     }
 
-    // Calculate statistics
-    const totalTransactions = allTransactions.length
-    const totalRevenue = allTransactions.reduce((sum, t) => sum + (t.amount || 0), 0)
-    const activeEmployees = employees.filter(emp => emp.is_active).length
+    // Get account balance from the shared balance service
+    const balanceData = BalanceService.getBalance(user.userId)
+    const accountBalance = balanceData.balance
     
-    // Count pending approvals (transactions with pending status)
-    const pendingApprovals = allTransactions.filter(t => t.status === 'pending').length
+    // Get debug info for troubleshooting
+    const debugInfo = BalanceService.getDebugInfo()
     
-    // Calculate success rate
-    const completedTransactions = allTransactions.filter(t => 
-      ['completed', 'success'].includes(t.status)
-    ).length
-    const successRate = totalTransactions > 0 ? (completedTransactions / totalTransactions) * 100 : 0
-
-    // Calculate monthly growth
-    const currentMonthTransactions = allTransactions.filter(t => 
-      new Date(t.created_at) >= startOfMonth
-    )
-    const lastMonthTransactions = allTransactions.filter(t => {
-      const date = new Date(t.created_at)
-      return date >= startOfLastMonth && date <= endOfLastMonth
+    console.log('📊 Dashboard Stats API: Account balance from balance service:', accountBalance)
+    console.log('📊 Dashboard Stats API: Balance data details:', balanceData)
+    console.log('📊 Dashboard Stats API: Debug info:', {
+      totalCompanies: debugInfo.totalCompanies,
+      fileExists: debugInfo.fileExists,
+      filePath: debugInfo.filePath,
+      allBalances: debugInfo.balances
     })
 
-    const currentMonthRevenue = currentMonthTransactions.reduce((sum, t) => sum + (t.amount || 0), 0)
-    const lastMonthRevenue = lastMonthTransactions.reduce((sum, t) => sum + (t.amount || 0), 0)
-    
-    const monthlyGrowth = lastMonthRevenue > 0 
-      ? ((currentMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 
-      : 0
+    // TODO: Implement when transactions table is created
+    // For now, return placeholder values
+    const totalTransactions = 0
+    const totalRevenue = 0
+    const pendingApprovals = 0
+    const successRate = 0
+    const monthlyGrowth = 0
 
-    // Prepare response
-    const stats = {
+    console.log('📊 Dashboard Stats API: Stats calculated:', {
       totalTransactions,
       totalRevenue,
-      activeEmployees,
+      activeEmployees: activeEmployees || 0,
       pendingApprovals,
       successRate,
-      monthlyGrowth
-    }
+      monthlyGrowth,
+      accountBalance
+    })
 
-    // Log the dashboard access
-    await supabase
-      .from('audit_logs')
-      .insert({
-        user_id: user.userId,
-        action: 'dashboard_accessed',
-        resource_type: 'dashboard',
-        resource_id: 'merchant_dashboard',
-        details: {
-          statsRequested: true,
-          companyId
-        }
-      })
-
-    return NextResponse.json(stats)
+    // Return dashboard statistics
+    return NextResponse.json({
+      totalTransactions: totalTransactions || 0,
+      totalRevenue: totalRevenue || 0,
+      activeEmployees: activeEmployees || 0,
+      pendingApprovals: pendingApprovals || 0,
+      successRate: successRate || 0,
+      monthlyGrowth: monthlyGrowth || 0,
+      accountBalance: accountBalance
+    })
 
   } catch (error) {
-    console.error('Merchant dashboard stats error:', error)
+    console.error('📊 Dashboard Stats API: Failed to fetch dashboard stats:', error)
     return NextResponse.json(
-      { error: { message: 'Internal server error' } },
+      {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to fetch dashboard stats'
+        }
+      },
       { status: 500 }
     )
   }
