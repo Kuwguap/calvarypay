@@ -1,0 +1,37 @@
+{
+  "name": "calvarypay-database-migrations",
+  "version": "1.0.0",
+  "description": "Database migrations and utilities for CalvaryPay balance system",
+  "main": "run-migrations.js",
+  "scripts": {
+    "migrate": "node run-migrations.js run",
+    "status": "node run-migrations.js status",
+    "rollback": "node run-migrations.js rollback",
+    "migrate-data": "node migrate-balances.js migrate",
+    "test": "node test-balance-system.js",
+    "help": "node run-migrations.js"
+  },
+  "keywords": [
+    "database",
+    "migration",
+    "balance",
+    "calvarypay",
+    "supabase"
+  ],
+  "author": "CalvaryPay Team",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/calvarypay/hackaton.git"
+  },
+  "bugs": {
+    "url": "https://github.com/calvarypay/hackaton/issues"
+  },
+  "homepage": "https://github.com/calvarypay/hackaton#readme"
+} 
