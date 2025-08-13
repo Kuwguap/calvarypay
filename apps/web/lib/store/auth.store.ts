@@ -39,7 +39,7 @@ export const userAtom = atom(
     set(authStore, {
       ...currentState,
       user,
-      isAuthenticated: user !== null && user.isActive
+      isAuthenticated: user !== null
     });
   }
 );

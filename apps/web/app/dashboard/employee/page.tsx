@@ -28,6 +28,9 @@ import {
   Download,
   ArrowRight,
   Eye,
+  Building2,
+  Users,
+  Mail,
 } from "lucide-react"
 import { EmployeeLayout } from "@/components/dashboard/role-based-layout"
 import { withRouteProtection } from "@/lib/auth/route-protection"
@@ -41,6 +44,27 @@ function EmployeeDashboard() {
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
+
+  // Fetch company information
+  const { data: companyData, isLoading: companyLoading } = useQuery({
+    queryKey: ['employee-company-info'],
+    queryFn: async () => {
+      const response = await fetch('/api/employee/company-info', {
+        headers: {
+          'Authorization': `Bearer ${user?.accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch company information')
+      }
+
+      return response.json()
+    },
+    enabled: !!user?.accessToken,
+    staleTime: 300000, // 5 minutes
+  })
 
   // Fetch recent transactions
   const { data: transactionsData, isLoading: transactionsLoading } = useQuery({
@@ -241,6 +265,180 @@ function EmployeeDashboard() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Company Information */}
+            {companyData && companyData.hasCompany && (
+              <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+                <CardHeader className="pb-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-white text-lg font-semibold flex items-center">
+                        <Building2 className="w-5 h-5 mr-2 text-blue-400" />
+                        Company Information
+                      </CardTitle>
+                      <CardDescription className="text-slate-400 mt-1">
+                        Your current company and team details
+                      </CardDescription>
+                    </div>
+                    <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
+                      Active Employee
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Company Details */}
+                    <div className="space-y-4">
+                      <div className="p-4 bg-slate-800/50 rounded-lg">
+                        <h4 className="text-white font-medium mb-3 flex items-center">
+                          <Building2 className="w-4 h-4 mr-2 text-blue-400" />
+                          Company Details
+                        </h4>
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Company:</span>
+                            <span className="text-white font-medium">{companyData.company.name}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Email:</span>
+                            <span className="text-white">{companyData.company.email}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Currency:</span>
+                            <span className="text-white">{companyData.company.defaultCurrency}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Joined:</span>
+                            <span className="text-white">{formatDate(companyData.employee.joinedAt)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Employee Details */}
+                      <div className="p-4 bg-slate-800/50 rounded-lg">
+                        <h4 className="text-white font-medium mb-3 flex items-center">
+                          <Users className="w-4 h-4 mr-2 text-emerald-400" />
+                          Your Position
+                        </h4>
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Department:</span>
+                            <Badge variant="outline" className="border-slate-600 text-slate-300">
+                              {companyData.employee.department}
+                            </Badge>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Spending Limit:</span>
+                            <span className="text-white font-medium">
+                              {formatCurrency(companyData.employee.spendingLimit, companyData.company.defaultCurrency)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Team Members */}
+                    <div className="space-y-4">
+                      <div className="p-4 bg-slate-800/50 rounded-lg">
+                        <h4 className="text-white font-medium mb-3 flex items-center">
+                          <Users className="w-4 h-4 mr-2 text-purple-400" />
+                          Team Members ({companyData.stats.totalColleagues})
+                        </h4>
+                        {companyData.colleagues.length > 0 ? (
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                            {companyData.colleagues.slice(0, 5).map((colleague) => (
+                              <div key={colleague.id} className="flex items-center justify-between p-2 bg-slate-700/50 rounded">
+                                <div className="flex items-center space-x-3">
+                                  <div className="w-8 h-8 bg-purple-500/20 rounded-full flex items-center justify-center">
+                                    <span className="text-purple-400 text-sm font-medium">
+                                      {colleague.name.split(' ').map(n => n.charAt(0)).join('')}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <p className="text-white text-sm font-medium">{colleague.name}</p>
+                                    <p className="text-slate-400 text-xs">{colleague.department}</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center">
+                                  {colleague.isOnline ? (
+                                    <div className="w-2 h-2 bg-emerald-400 rounded-full"></div>
+                                  ) : (
+                                    <div className="w-2 h-2 bg-slate-500 rounded-full"></div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                            {companyData.colleagues.length > 5 && (
+                              <p className="text-slate-400 text-sm text-center pt-2">
+                                +{companyData.colleagues.length - 5} more colleagues
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-slate-400 text-sm">No other team members yet</p>
+                        )}
+                      </div>
+
+                      {/* Company Stats */}
+                      <div className="p-4 bg-slate-800/50 rounded-lg">
+                        <h4 className="text-white font-medium mb-3">Team Stats</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="text-center">
+                            <div className="text-lg font-bold text-emerald-400">
+                              {companyData.stats.onlineColleagues}
+                            </div>
+                            <div className="text-xs text-slate-400">Online Now</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-lg font-bold text-blue-400">
+                              {companyData.stats.totalColleagues + 1}
+                            </div>
+                            <div className="text-xs text-slate-400">Total Members</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* No Company State */}
+            {companyData && !companyData.hasCompany && (
+              <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+                <CardContent className="p-8 text-center">
+                  <Building2 className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-white mb-2">No Company Association</h3>
+                  <p className="text-slate-400 mb-6">
+                    You're not currently part of any company. Wait for an invitation from a company to join their team.
+                  </p>
+                  {companyData.pendingInvitations.length > 0 && (
+                    <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-4 mb-4">
+                      <h4 className="text-blue-400 font-medium mb-2">Pending Invitations</h4>
+                      <div className="space-y-2">
+                        {companyData.pendingInvitations.map((invitation) => (
+                          <div key={invitation.id} className="flex items-center justify-between p-2 bg-slate-800/50 rounded">
+                            <div>
+                              <p className="text-white text-sm font-medium">{invitation.companyName}</p>
+                              <p className="text-slate-400 text-xs">{invitation.department}</p>
+                            </div>
+                            <Button size="sm" className="bg-blue-600 hover:bg-blue-700">
+                              View
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-center space-x-4">
+                    <Button variant="outline" className="border-slate-600 text-slate-300 hover:bg-slate-700">
+                      <Mail className="w-4 h-4 mr-2" />
+                      Contact Support
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Recent Transactions */}
             <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">

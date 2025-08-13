@@ -41,6 +41,11 @@ export function useAuth() {
         const storedRefreshToken = localStorage.getItem('calvarypay_refresh_token')
 
         if (storedUser && storedToken) {
+          console.log('🔍 Retrieved tokens from localStorage:', {
+            storedToken: storedToken?.substring(0, 30) + '...',
+            storedRefreshToken: storedRefreshToken?.substring(0, 30) + '...'
+          });
+
           const user = JSON.parse(storedUser)
           setAuthState({
             user: {
@@ -103,12 +108,17 @@ export function useAuth() {
         role: data.user.role,
         firstName: data.user.firstName,
         lastName: data.user.lastName,
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken
+        accessToken: data.tokens.accessToken,
+        refreshToken: data.tokens.refreshToken
       }
 
       // Store in localStorage (client-side only)
       if (typeof window !== 'undefined') {
+        console.log('🔍 Storing tokens:', {
+          accessToken: data.tokens.accessToken?.substring(0, 30) + '...',
+          refreshToken: data.tokens.refreshToken?.substring(0, 30) + '...'
+        });
+
         localStorage.setItem('calvarypay_user', JSON.stringify({
           userId: user.userId,
           email: user.email,
@@ -116,14 +126,18 @@ export function useAuth() {
           firstName: user.firstName,
           lastName: user.lastName
         }))
-        localStorage.setItem('calvarypay_access_token', data.accessToken)
-        if (data.refreshToken) {
-          localStorage.setItem('calvarypay_refresh_token', data.refreshToken)
+        localStorage.setItem('calvarypay_access_token', data.tokens.accessToken)
+        if (data.tokens.refreshToken) {
+          localStorage.setItem('calvarypay_refresh_token', data.tokens.refreshToken)
         }
       }
 
       setAuthState({
-        user,
+        user: {
+          ...user,
+          accessToken: data.tokens.accessToken,
+          refreshToken: data.tokens.refreshToken
+        },
         isAuthenticated: true,
         isLoading: false,
         error: null
@@ -137,7 +151,9 @@ export function useAuth() {
         admin: '/dashboard/admin'
       }
 
-      router.push(roleRoutes[user.role] || '/dashboard')
+      const targetRoute = roleRoutes[user.role] || '/dashboard/customer'
+      console.log(`🔄 Redirecting ${user.role} to ${targetRoute}`)
+      router.push(targetRoute)
 
       return { success: true, user }
     } catch (error) {

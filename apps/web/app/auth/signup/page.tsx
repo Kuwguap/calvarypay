@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useAtom } from "jotai"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,10 +21,13 @@ import { signUpSchema, validateField, type SignUpFormData } from "@/lib/validati
 
 export default function SignUpPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [currentStep, setCurrentStep] = useState(1)
+  const [invitationToken, setInvitationToken] = useState<string | null>(null)
+  const [invitationData, setInvitationData] = useState<any>(null)
   const [formData, setFormData] = useState<SignUpFormData>({
     firstName: "",
     lastName: "",
@@ -44,6 +47,35 @@ export default function SignUpPage() {
   const [, setLoginLoading] = useAtom(setLoginLoadingAtom)
   const showSuccess = useSuccessNotification()
   const showError = useErrorNotification()
+
+  // Handle invitation token from URL
+  useEffect(() => {
+    const token = searchParams.get('invitation')
+    if (token) {
+      setInvitationToken(token)
+
+      // Fetch invitation details
+      fetch(`/api/auth/invitation-details?token=${token}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.success && data.invitation) {
+            setInvitationData(data.invitation)
+            // Pre-fill form with invitation data
+            setFormData(prev => ({
+              ...prev,
+              email: data.invitation.email,
+              firstName: data.invitation.firstName,
+              lastName: data.invitation.lastName,
+              role: 'employee' // Force employee role for invitations
+            }))
+          }
+        })
+        .catch(error => {
+          console.error('Failed to fetch invitation details:', error)
+          showError('Invalid invitation link')
+        })
+    }
+  }, [searchParams, showError])
 
   // Real-time field validation with proper email validation
   const validateFormField = (field: keyof SignUpFormData, value: any) => {
@@ -198,7 +230,34 @@ export default function SignUpPage() {
 
       if (response?.user) {
         setUser(response.user)
-        showSuccess('Account created successfully!', 'Welcome to CalvaryPay')
+
+        // If there's an invitation token, accept it after successful registration
+        if (invitationToken && formData.role === 'employee') {
+          try {
+            console.log('🔗 Accepting invitation after registration')
+            const invitationResponse = await fetch('/api/auth/accept-invitation', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${response.tokens.accessToken}`
+              },
+              body: JSON.stringify({ token: invitationToken })
+            })
+
+            if (invitationResponse.ok) {
+              showSuccess('Account created and invitation accepted!', 'Welcome to the team!')
+              console.log('✅ Invitation accepted successfully')
+            } else {
+              console.warn('⚠️ Registration successful but invitation acceptance failed')
+              showSuccess('Account created successfully!', 'Please contact your company to complete the invitation process.')
+            }
+          } catch (invitationError) {
+            console.error('❌ Invitation acceptance error:', invitationError)
+            showSuccess('Account created successfully!', 'Please contact your company to complete the invitation process.')
+          }
+        } else {
+          showSuccess('Account created successfully!', 'Welcome to CalvaryPay')
+        }
 
         // Route to appropriate dashboard based on role
         const dashboardRoutes = {
@@ -260,22 +319,22 @@ export default function SignUpPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex items-center justify-center mb-8">
           <div className="flex items-center space-x-2">
-            <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
               <CreditCard className="w-6 h-6 text-white" />
             </div>
-            <span className="text-2xl font-semibold text-gray-900">CalvaryPay</span>
+            <span className="text-2xl font-bold text-white">CalvaryPay</span>
           </div>
         </div>
 
-        <Card className="bg-white border border-gray-200 shadow-lg">
+        <Card className="bg-slate-900/50 border-slate-800 backdrop-blur-sm shadow-xl">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl font-bold text-gray-900">Create account</CardTitle>
-            <CardDescription className="text-gray-600">
+            <CardTitle className="text-2xl font-bold text-white">Create Account</CardTitle>
+            <CardDescription className="text-slate-400">
               Join CalvaryPay to start managing payments efficiently
             </CardDescription>
 
@@ -285,21 +344,21 @@ export default function SignUpPage() {
                 <div key={step} className="flex items-center">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium transition-all duration-200 ${
                     step <= currentStep
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-200 text-gray-500'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-700 text-slate-400'
                   }`}>
                     {step <= currentStep ? <CheckCircle className="w-4 h-4" /> : step}
                   </div>
                   {step < 4 && (
                     <div className={`w-8 h-0.5 mx-1 transition-all duration-200 ${
-                      step < currentStep ? 'bg-indigo-600' : 'bg-gray-200'
+                      step < currentStep ? 'bg-blue-600' : 'bg-slate-700'
                     }`} />
                   )}
                 </div>
               ))}
             </div>
 
-            <p className="text-sm text-gray-500 mt-2">{getStepTitle()}</p>
+            <p className="text-sm text-slate-400 mt-2">{getStepTitle()}</p>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -407,7 +466,7 @@ export default function SignUpPage() {
               {currentStep === 4 && (
                 <FormSection title="Account Type" description="Choose your account type">
                   <div className="space-y-4">
-                    <Label className="text-gray-900">Select Account Type</Label>
+                    <Label className="text-slate-200">Select Account Type</Label>
                     <div className="grid grid-cols-1 gap-3">
                       {userTypes.map((type) => {
                         const Icon = type.icon
@@ -416,25 +475,25 @@ export default function SignUpPage() {
                             key={type.value}
                             className={`p-4 rounded-lg border cursor-pointer transition-all duration-200 ${
                               formData.role === type.value
-                                ? 'border-indigo-500 bg-indigo-50'
-                                : 'border-gray-200 bg-white hover:border-gray-300'
+                                ? 'border-blue-500 bg-blue-500/10'
+                                : 'border-slate-600 bg-slate-700/30 hover:border-slate-500'
                             }`}
                             onClick={() => handleFieldChange('role', type.value)}
                           >
                             <div className="flex items-center space-x-3">
                               <Icon className={`w-5 h-5 ${
-                                formData.role === type.value ? 'text-indigo-600' : 'text-gray-500'
+                                formData.role === type.value ? 'text-blue-400' : 'text-slate-400'
                               }`} />
                               <div className="flex-1">
                                 <h4 className={`font-medium ${
-                                  formData.role === type.value ? 'text-indigo-900' : 'text-gray-900'
+                                  formData.role === type.value ? 'text-blue-300' : 'text-white'
                                 }`}>
                                   {type.label}
                                 </h4>
-                                <p className="text-xs text-gray-500">{type.description}</p>
+                                <p className="text-xs text-slate-400">{type.description}</p>
                               </div>
                               {formData.role === type.value && (
-                                <CheckCircle className="w-5 h-5 text-indigo-600" />
+                                <CheckCircle className="w-5 h-5 text-blue-400" />
                               )}
                             </div>
                           </div>
@@ -443,7 +502,7 @@ export default function SignUpPage() {
                     </div>
 
                     {/* Terms and Conditions */}
-                    <div className="flex items-start space-x-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-start space-x-3 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
                       <Checkbox
                         id="acceptTerms"
                         checked={formData.acceptTerms}
@@ -451,18 +510,18 @@ export default function SignUpPage() {
                         className="mt-1"
                       />
                       <div className="flex-1">
-                        <Label htmlFor="acceptTerms" className="text-sm text-gray-700 cursor-pointer">
+                        <Label htmlFor="acceptTerms" className="text-sm text-slate-300 cursor-pointer">
                           I agree to the{' '}
-                          <Link href="/terms" className="text-indigo-600 hover:text-indigo-500 underline">
+                          <Link href="/terms" className="text-blue-400 hover:text-blue-300 underline">
                             Terms of Service
                           </Link>{' '}
                           and{' '}
-                          <Link href="/privacy" className="text-indigo-600 hover:text-indigo-500 underline">
+                          <Link href="/privacy" className="text-blue-400 hover:text-blue-300 underline">
                             Privacy Policy
                           </Link>
                         </Label>
                         {fieldErrors.acceptTerms && (
-                          <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                          <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
                             <AlertCircle className="w-3 h-3" />
                             {fieldErrors.acceptTerms}
                           </p>
@@ -480,7 +539,7 @@ export default function SignUpPage() {
                     type="button"
                     variant="outline"
                     onClick={() => setCurrentStep(prev => prev - 1)}
-                    className="border-gray-300 text-gray-700 hover:bg-gray-50 bg-white"
+                    className="border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent"
                   >
                     Previous
                   </Button>
@@ -493,7 +552,7 @@ export default function SignUpPage() {
                     type="button"
                     onClick={() => setCurrentStep(prev => prev + 1)}
                     disabled={!canProceedToNextStep()}
-                    className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Next
                   </Button>
@@ -501,7 +560,7 @@ export default function SignUpPage() {
                   <Button
                     type="submit"
                     disabled={isLoading || !formData.acceptTerms}
-                    className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transition-all duration-200"
                   >
                     {isLoading ? (
                       <>
@@ -520,9 +579,9 @@ export default function SignUpPage() {
             </form>
 
             <div className="mt-6 text-center">
-              <p className="text-gray-600">
+              <p className="text-slate-300">
                 Already have an account?{" "}
-                <Link href="/auth/signin" className="text-indigo-600 hover:text-indigo-500 font-medium">
+                <Link href="/auth/signin" className="text-blue-400 hover:text-blue-300 font-medium">
                   Sign in
                 </Link>
               </p>
@@ -531,7 +590,7 @@ export default function SignUpPage() {
         </Card>
 
         <div className="mt-6 text-center">
-          <Link href="/" className="text-gray-500 hover:text-gray-700 text-sm">
+          <Link href="/" className="text-slate-400 hover:text-slate-200 text-sm">
             ← Back to home
           </Link>
         </div>

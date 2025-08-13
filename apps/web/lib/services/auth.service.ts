@@ -250,6 +250,96 @@ export class AuthService {
   isEmployee(): boolean {
     return this.hasRole('employee');
   }
+
+  /**
+   * Verify token and get user data
+   * Used by API routes to validate tokens (server-side)
+   */
+  async verifyToken(token: string): Promise<User | null> {
+    try {
+      console.log('🔍 Verifying token:', {
+        tokenLength: token?.length,
+        tokenStart: token?.substring(0, 20) + '...',
+        tokenFormat: token?.startsWith('calvary_access_') ? 'calvary_access' : 'other'
+      });
+
+      // Basic token format check
+      if (!token || token.length < 10) {
+        console.error('Invalid token format - too short or empty:', { token: token?.substring(0, 20) });
+        return null;
+      }
+
+      // Extract user ID from our simple token format: calvary_access_${timestamp}_${userId}
+      let userId: string;
+
+      try {
+        if (token.startsWith('calvary_access_')) {
+          // Our simple token format: calvary_access_${timestamp}_${userId}
+          const parts = token.split('_');
+          if (parts.length >= 3) {
+            userId = parts.slice(2).join('_'); // Handle UUIDs with underscores
+          } else {
+            console.error('Invalid token format - not enough parts');
+            return null;
+          }
+        } else {
+          // Try JWT format as fallback
+          const parts = token.split('.');
+          if (parts.length === 3) {
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+            userId = payload.userId || payload.sub || payload.id;
+          } else {
+            console.error('Unknown token format');
+            return null;
+          }
+        }
+      } catch (decodeError) {
+        console.error('Token decode failed:', decodeError);
+        return null;
+      }
+
+      if (!userId) {
+        console.error('No user ID found in token');
+        return null;
+      }
+
+      // Get user from database
+      const { supabase } = await import('@/lib/supabase');
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('id, email, first_name, last_name, phone, role, is_active, email_verified, phone_verified, created_at, updated_at')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !user) {
+        console.error('User fetch error:', userError);
+        return null;
+      }
+
+      // Check if user is active
+      if (!user.is_active) {
+        return null;
+      }
+
+      // Format user data
+      return {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        phone: user.phone,
+        role: user.role,
+        isActive: user.is_active,
+        emailVerified: user.email_verified,
+        phoneVerified: user.phone_verified,
+        createdAt: user.created_at,
+        updatedAt: user.updated_at
+      };
+    } catch (error) {
+      console.error('Token verification failed:', error);
+      return null;
+    }
+  }
 }
 
 // Export singleton instance

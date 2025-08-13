@@ -1,4 +1,4 @@
-﻿import type React from "react"
+import type React from "react"
 import type { Metadata } from "next"
 import { GeistSans } from "geist/font/sans"
 import { GeistMono } from "geist/font/mono"
@@ -9,6 +9,7 @@ import { JotaiProvider } from "@/lib/providers/jotai-provider"
 import { OfflineProvider } from "@/lib/providers/offline-provider"
 import { AsyncErrorBoundary } from "@/components/error-boundary"
 import { NotificationProvider } from "@/components/ui/notification-system"
+import { ClientOnly } from "@/components/client-only"
 
 export const metadata: Metadata = {
   title: "CalvaryPay - Digital Payment & Logbook Platform",
@@ -22,31 +23,49 @@ export const metadata: Metadata = {
   },
 }
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  themeColor: "#000000",
+}
+
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode
-}) {
+}>) {
   return (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
-      <body className="font-sans antialiased">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <style>{`
+html {
+  font-family: ${GeistSans.style.fontFamily};
+  --font-sans: ${GeistSans.variable};
+  --font-mono: ${GeistMono.variable};
+}
+        `}</style>
+      </head>
+      <body className={`${GeistSans.variable} ${GeistMono.variable} font-sans antialiased`}>
         <AsyncErrorBoundary>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
+          <JotaiProvider>
             <QueryProvider>
-              <JotaiProvider>
-                <OfflineProvider>
-                  <NotificationProvider>
-                    {children}
-                  </NotificationProvider>
-                </OfflineProvider>
-              </JotaiProvider>
+              <ThemeProvider
+                attribute="class"
+                defaultTheme="dark"
+                enableSystem={false}
+                disableTransitionOnChange
+              >
+                <NotificationProvider>
+                  <ClientOnly>
+                    <OfflineProvider>
+                      {children}
+                    </OfflineProvider>
+                  </ClientOnly>
+                </NotificationProvider>
+              </ThemeProvider>
             </QueryProvider>
-          </ThemeProvider>
+          </JotaiProvider>
         </AsyncErrorBoundary>
       </body>
     </html>

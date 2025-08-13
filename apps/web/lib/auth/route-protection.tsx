@@ -139,16 +139,30 @@ export function RouteProtection({
       // Check role-based access
       if (requiredRoles.length > 0 && !requiredRoles.includes(user.role as UserRole)) {
         console.log(`🚫 User role ${user.role} not authorized for ${pathname}`)
-        showError('Access Denied', 'You do not have permission to access this page')
-        router.push(getDefaultDashboardRoute(user.role as UserRole))
+        // Only show error if user is trying to access a different role's dashboard
+        const isDashboardRoute = pathname.startsWith('/dashboard/')
+        if (isDashboardRoute) {
+          // Silent redirect to correct dashboard
+          router.push(getDefaultDashboardRoute(user.role as UserRole))
+        } else {
+          showError('Access Denied', 'You do not have permission to access this page')
+          router.push(getDefaultDashboardRoute(user.role as UserRole))
+        }
         return
       }
-      
+
       // Check general route access
       if (!hasRouteAccess(user.role as UserRole, pathname)) {
         console.log(`🚫 Route access denied for ${user.role} to ${pathname}`)
-        showError('Access Denied', 'You do not have permission to access this page')
-        router.push(getRedirectRoute(user.role as UserRole, pathname))
+        // Only show error for non-dashboard routes
+        const isDashboardRoute = pathname.startsWith('/dashboard/')
+        if (isDashboardRoute) {
+          // Silent redirect to correct dashboard
+          router.push(getDefaultDashboardRoute(user.role as UserRole))
+        } else {
+          showError('Access Denied', 'You do not have permission to access this page')
+          router.push(getRedirectRoute(user.role as UserRole, pathname))
+        }
         return
       }
       

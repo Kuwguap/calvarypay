@@ -186,8 +186,10 @@ function TransactionsPage() {
         queryClient.invalidateQueries({ queryKey: ['transactions'] })
       }, 2000)
     },
-    onError: (error: Error) => {
+    onError: (error: unknown) => {
       console.error('Payment initialization failed:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to initialize payment'
+      console.error('Error message:', errorMessage)
     }
   })
 
