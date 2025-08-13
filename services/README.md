@@ -1,4 +1,4 @@
-# EliteePay Microservices
+# CalvaryPay Microservices
 
 A production-ready microservices architecture for payment processing with comprehensive audit logging, user management, and API gateway.
 
@@ -176,8 +176,8 @@ LOG_LEVEL=info
 JWT_SECRET=your-jwt-secret-key
 JWT_ACCESS_EXPIRY=15m
 JWT_REFRESH_EXPIRY=7d
-JWT_ISSUER=eliteepay-user-service
-JWT_AUDIENCE=eliteepay-api
+JWT_ISSUER=CalvaryPay-user-service
+JWT_AUDIENCE=CalvaryPay-api
 
 # Password Hashing
 BCRYPT_SALT_ROUNDS=12

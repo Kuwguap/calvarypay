@@ -1,4 +1,4 @@
-# EliteEpay Performance Rules and Standards
+# CalvaryPay Performance Rules and Standards
 
 ## Database Performance Rules
 

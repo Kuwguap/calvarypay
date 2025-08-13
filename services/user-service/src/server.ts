@@ -1,4 +1,4 @@
-import { initializeEnvironment } from '@eliteepay/shared';
+import { initializeEnvironment } from '@CalvaryPay/shared';
 
 // Initialize environment configuration first
 initializeEnvironment();
@@ -8,7 +8,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import morgan from 'morgan';
-import { logger, supabaseService } from '@eliteepay/shared';
+import { logger, supabaseService } from '@CalvaryPay/shared';
 import { config } from './config';
 import { errorHandler } from './middleware/error.middleware';
 import { healthRoutes } from './routes/health.routes';

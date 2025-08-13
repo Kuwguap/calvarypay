@@ -325,7 +325,7 @@ export class RedisService {
 export function createRedisService(): RedisService {
   const config: CacheConfig = {
     url: process.env.REDIS_URL!,
-    keyPrefix: process.env.REDIS_KEY_PREFIX || 'eliteepay'
+    keyPrefix: process.env.REDIS_KEY_PREFIX || 'CalvaryPay'
   };
 
   if (!config.url) {

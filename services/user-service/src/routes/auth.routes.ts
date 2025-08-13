@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import { logger, AppError, HttpStatusCode } from '@eliteepay/shared';
+import { logger, AppError, HttpStatusCode } from '@CalvaryPay/shared';
 import { AuthService } from '../services/auth.service';
 import { UserService } from '../services/user.service';
 
@@ -158,10 +158,10 @@ router.post('/test-login', async (req: Request, res: Response) => {
     const { email, password } = req.body;
 
     // Simple test credentials
-    if (email === 'test@eliteepay.com' && password === 'Test123!') {
+    if (email === 'test@CalvaryPay.com' && password === 'Test123!') {
       const testUser = {
         id: 'test-user-id',
-        email: 'test@eliteepay.com',
+        email: 'test@CalvaryPay.com',
         firstName: 'Test',
         lastName: 'User',
         role: 'customer',

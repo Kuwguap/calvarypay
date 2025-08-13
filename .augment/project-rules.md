@@ -1,4 +1,4 @@
-# EliteEpay Project Rules and Best Practices
+# CalvaryPay Project Rules and Best Practices
 
 ## 1. Database Schema Standards
 
@@ -91,8 +91,8 @@ DELETE /api/v1/users/:id       # Delete user
   "permissions": ["transactions:read", "transactions:write"],
   "iat": 1234567890,
   "exp": 1234567890,
-  "iss": "eliteepay-auth",
-  "aud": "eliteepay-services"
+  "iss": "CalvaryPay-auth",
+  "aud": "CalvaryPay-services"
 }
 ```
 

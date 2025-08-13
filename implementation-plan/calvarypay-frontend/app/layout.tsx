@@ -17,17 +17,17 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
-      <head>
-        <style>{`
-html {
-  font-family: ${GeistSans.style.fontFamily};
-  --font-sans: ${GeistSans.variable};
-  --font-mono: ${GeistMono.variable};
-}
-        `}</style>
-      </head>
-      <body>{children}</body>
+    <html
+      lang="en"
+      className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}
+      style={
+        {
+          "--font-geist-sans": GeistSans.style.fontFamily,
+          "--font-geist-mono": GeistMono.style.fontFamily,
+        } as React.CSSProperties
+      }
+    >
+      <body className="font-sans">{children}</body>
     </html>
   )
 }

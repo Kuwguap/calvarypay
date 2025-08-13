@@ -1,7 +1,7 @@
 {
-  "name": "@eliteepay/user-service",
+  "name": "@CalvaryPay/user-service",
   "version": "1.0.0",
-  "description": "User management and authentication service for EliteEpay",
+  "description": "User management and authentication service for CalvaryPay",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
@@ -14,7 +14,7 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
-    "@eliteepay/shared": "file:../shared",
+    "@CalvaryPay/shared": "file:../shared",
     "@supabase/supabase-js": "^2.54.0",
     "@types/uuid": "^10.0.0",
     "bcryptjs": "^2.4.3",

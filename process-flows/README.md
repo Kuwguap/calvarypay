@@ -1,6 +1,6 @@
-# EliteEpay Process Flows - Pseudocode Reference
+# CalvaryPay Process Flows - Pseudocode Reference
 
-This directory contains pseudocode implementations of all major system processes for the EliteEpay payment ecosystem. These files serve as definitive reference points for AI agents and developers implementing the system.
+This directory contains pseudocode implementations of all major system processes for the CalvaryPay payment ecosystem. These files serve as definitive reference points for AI agents and developers implementing the system.
 
 ## 📁 Process Flow Files
 

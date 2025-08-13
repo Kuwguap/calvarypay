@@ -1,4 +1,4 @@
-import { initializeEnvironment } from '@eliteepay/shared';
+import { initializeEnvironment } from '@CalvaryPay/shared';
 
 // Initialize environment configuration first
 initializeEnvironment();
@@ -10,7 +10,7 @@ import compression from 'compression';
 import morgan from 'morgan';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from './config';
-import { logger, AppError, HttpStatusCode } from '@eliteepay/shared';
+import { logger, AppError, HttpStatusCode } from '@CalvaryPay/shared';
 import { pricingRoutes } from './routes/pricing.routes';
 
 const app = express();

@@ -47,7 +47,7 @@ router.get('/', (req: Request, res: Response) => {
     <!DOCTYPE html>
     <html>
     <head>
-      <title>EliteEpay API Documentation</title>
+      <title>CalvaryPay API Documentation</title>
       <style>
         body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
         .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
@@ -65,8 +65,8 @@ router.get('/', (req: Request, res: Response) => {
     </head>
     <body>
       <div class="container">
-        <h1>🚀 EliteEpay API Documentation</h1>
-        <p>Welcome to the EliteEpay microservices API documentation. Select a service below to view its API documentation.</p>
+        <h1>🚀 CalvaryPay API Documentation</h1>
+        <p>Welcome to the CalvaryPay microservices API documentation. Select a service below to view its API documentation.</p>
         
         ${services.map(service => `
           <div class="service">
@@ -80,7 +80,7 @@ router.get('/', (req: Request, res: Response) => {
         `).join('')}
         
         <div class="footer">
-          <p>EliteEpay - Elite e-Payment Ecosystem for Africa</p>
+          <p>CalvaryPay - Elite e-Payment Ecosystem for Africa</p>
           <p>Environment: ${config.environment} | Version: ${config.version}</p>
         </div>
       </div>
@@ -95,9 +95,9 @@ router.get('/', (req: Request, res: Response) => {
 const gatewaySpec = {
   openapi: '3.0.0',
   info: {
-    title: 'EliteEpay API Gateway',
+    title: 'CalvaryPay API Gateway',
     version: config.version,
-    description: 'API Gateway for EliteEpay microservices with authentication and routing'
+    description: 'API Gateway for CalvaryPay microservices with authentication and routing'
   },
   servers: [
     {

@@ -27,8 +27,8 @@ export class JWTMiddleware {
   constructor(config?: JWTConfig) {
     this.config = config || {
       secret: process.env.JWT_SECRET!,
-      issuer: process.env.JWT_ISSUER || 'eliteepay-auth',
-      audience: process.env.JWT_AUDIENCE || 'eliteepay-services',
+      issuer: process.env.JWT_ISSUER || 'CalvaryPay-auth',
+      audience: process.env.JWT_AUDIENCE || 'CalvaryPay-services',
       algorithm: 'HS256'
     };
 
@@ -171,7 +171,7 @@ export class JWTMiddleware {
         // Add service context to request
         req.user = {
           id: 'service',
-          email: 'service@eliteepay.com',
+          email: 'service@CalvaryPay.com',
           roles: ['service'],
           permissions: ['*']
         };

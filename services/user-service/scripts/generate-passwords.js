@@ -10,8 +10,8 @@ async function generatePasswords() {
   console.log('🔐 Generating hashed passwords...');
   
   const passwords = [
-    { user: 'admin@eliteepay.com', password: 'Admin123!' },
-    { user: 'test@eliteepay.com', password: 'Test123!' }
+    { user: 'admin@CalvaryPay.com', password: 'Admin123!' },
+    { user: 'test@CalvaryPay.com', password: 'Test123!' }
   ];
   
   for (const { user, password } of passwords) {
@@ -30,7 +30,7 @@ async function generatePasswords() {
 INSERT INTO users (id, email, password_hash, first_name, last_name, role, is_active, email_verified) VALUES
 (
   '00000000-0000-0000-0000-000000000001',
-  'admin@eliteepay.com',
+  'admin@CalvaryPay.com',
   '${adminHash}',
   'System',
   'Administrator',
@@ -40,7 +40,7 @@ INSERT INTO users (id, email, password_hash, first_name, last_name, role, is_act
 ),
 (
   '00000000-0000-0000-0000-000000000002',
-  'test@eliteepay.com',
+  'test@CalvaryPay.com',
   '${testHash}',
   'Test',
   'User',

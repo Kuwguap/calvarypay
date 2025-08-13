@@ -1,4 +1,4 @@
--- EliteEpay Row Level Security (RLS) Policies
+-- CalvaryPay Row Level Security (RLS) Policies
 -- This file creates RLS policies for secure multi-tenant access
 
 -- ========================================
@@ -250,3 +250,6 @@ GRANT SELECT ON pricing_schema.currency_rates TO authenticated;
 -- Grant read-only access to anon for public data
 GRANT SELECT ON pricing_schema.prices TO anon;
 GRANT SELECT ON pricing_schema.currency_rates TO anon;
+
+
+implement strict mechanisms like CORS and basic mitigations for owasp top 10 to prevent vulnerabilities in the accounts and apis mostly prevent basic IDORS in accounts and objects

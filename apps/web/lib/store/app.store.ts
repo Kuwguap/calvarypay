@@ -4,12 +4,11 @@
  */
 
 import { atom } from 'jotai';
-import { atomWithStorage } from 'jotai/utils';
 
-// Theme and UI state
-export const themeAtom = atomWithStorage<'light' | 'dark' | 'system'>('eliteepay_theme', 'system');
-export const sidebarOpenAtom = atomWithStorage('eliteepay_sidebar_open', true);
-export const sidebarCollapsedAtom = atomWithStorage('eliteepay_sidebar_collapsed', false);
+// Theme and UI state (no localStorage to avoid SSR issues)
+export const themeAtom = atom<'light' | 'dark' | 'system'>('dark');
+export const sidebarOpenAtom = atom(true);
+export const sidebarCollapsedAtom = atom(false);
 
 // Network and connectivity
 export const isOnlineAtom = atom(true);
@@ -53,8 +52,8 @@ export const globalSearchAtom = atom('');
 export const searchResultsAtom = atom<any[]>([]);
 export const searchLoadingAtom = atom(false);
 
-// Sync state
-export const lastSyncAtom = atomWithStorage<string | null>('eliteepay_last_sync', null);
+// Sync state (no localStorage to avoid SSR issues)
+export const lastSyncAtom = atom<string | null>(null);
 export const syncInProgressAtom = atom(false);
 export const pendingSyncCountAtom = atom(0);
 

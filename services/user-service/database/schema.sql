@@ -1,4 +1,4 @@
--- EliteePay User Service Database Schema
+-- CalvaryPay User Service Database Schema
 -- This script sets up the complete database schema for the User Service
 
 -- Enable necessary extensions
@@ -169,7 +169,7 @@ INSERT INTO users (
     email_verified
 ) VALUES (
     '00000000-0000-0000-0000-000000000001',
-    'admin@eliteepay.com',
+    'admin@CalvaryPay.com',
     '$2b$12$LQv3c1yqBwEHXw.9oC9.Ou3.0p.dMtxpkZvZJvKUKKKKKKKKKKKKK', -- Admin123!
     'System',
     'Administrator',
@@ -192,7 +192,7 @@ INSERT INTO users (
     email_verified
 ) VALUES (
     '00000000-0000-0000-0000-000000000002',
-    'test@eliteepay.com',
+    'test@CalvaryPay.com',
     '$2b$12$LQv3c1yqBwEHXw.9oC9.Ou3.0p.dMtxpkZvZJvKUKKKKKKKKKKKKK', -- Test123!
     'Test',
     'User',

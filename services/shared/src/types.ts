@@ -1,4 +1,4 @@
-// EliteEpay Shared Types
+// CalvaryPay Shared Types
 // Common types used across all microservices
 
 // Base Error Class

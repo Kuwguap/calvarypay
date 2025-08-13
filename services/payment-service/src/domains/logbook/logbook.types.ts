@@ -1,4 +1,4 @@
-import { SupportedCurrency } from '@eliteepay/shared';
+import { SupportedCurrency } from '@CalvaryPay/shared';
 
 export interface LogbookEntry {
   id: string;

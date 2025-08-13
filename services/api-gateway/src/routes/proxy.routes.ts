@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import httpProxy from 'http-proxy';
-import { logger } from '@eliteepay/shared';
+import { logger } from '@CalvaryPay/shared';
 import { config } from '../config';
 
 const router = Router();

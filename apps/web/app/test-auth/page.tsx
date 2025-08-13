@@ -7,7 +7,7 @@ export default function TestAuthPage() {
   const [result, setResult] = useState<string>("")
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({
-    email: "test@eliteepay.com",
+    email: "test@CalvaryPay.com",
     password: "Test123!"
   })
 
@@ -19,7 +19,7 @@ export default function TestAuthPage() {
       console.log("🧪 Testing login...")
       
       const response = await authService.login({
-        email: "test@eliteepay.com",
+        email: "test@CalvaryPay.com",
         password: "Test123!"
       })
       
@@ -47,7 +47,7 @@ export default function TestAuthPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: "test@eliteepay.com",
+          email: "test@CalvaryPay.com",
           password: "Test123!"
         })
       })

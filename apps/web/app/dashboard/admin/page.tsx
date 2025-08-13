@@ -36,8 +36,10 @@ import {
   Sliders,
 } from "lucide-react"
 import Link from "next/link"
+import { AdminLayout } from "@/components/dashboard/role-based-layout"
+import { withRouteProtection } from "@/lib/auth/route-protection"
 
-export default function AdminDashboard() {
+function AdminDashboard() {
   const [searchTerm, setSearchTerm] = useState("")
   const [isCompanyDialogOpen, setIsCompanyDialogOpen] = useState(false)
   const [isRateDialogOpen, setIsRateDialogOpen] = useState(false)
@@ -113,101 +115,15 @@ export default function AdminDashboard() {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Header */}
-      <header className="border-b border-slate-700/50 bg-slate-900/50 backdrop-blur-sm">
-        <div className="flex items-center justify-between px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <CreditCard className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-xl font-bold text-white">CalvaryPay</span>
-            </div>
-            <Badge className="bg-purple-600/20 text-purple-400 border-purple-600/30">Administrator</Badge>
+    <AdminLayout>
+      <div className="space-y-8">
+        {/* Welcome Section */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-white">System Administration</h1>
+            <p className="text-slate-400 mt-1">Monitor and regulate payment activities across all organizations</p>
           </div>
-
-          <div className="flex items-center space-x-4">
-            <Button variant="ghost" size="sm" className="text-slate-300 hover:text-white">
-              <Bell className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="sm" className="text-slate-300 hover:text-white">
-              <Settings className="w-4 h-4" />
-            </Button>
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center">
-                <Shield className="w-4 h-4 text-slate-300" />
-              </div>
-              <span className="text-slate-300 text-sm">System Admin</span>
-            </div>
-            <Link href="/auth/signin">
-              <Button variant="ghost" size="sm" className="text-slate-300 hover:text-white">
-                <LogOut className="w-4 h-4" />
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="w-64 bg-slate-800/30 border-r border-slate-700/50 min-h-screen">
-          <nav className="p-4 space-y-2">
-            <Link
-              href="/dashboard/admin"
-              className="flex items-center space-x-3 px-3 py-2 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-600/30"
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>System Overview</span>
-            </Link>
-            <Link
-              href="/dashboard/admin/companies"
-              className="flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700/50"
-            >
-              <Building2 className="w-4 h-4" />
-              <span>Companies</span>
-            </Link>
-            <Link
-              href="/dashboard/admin/compliance"
-              className="flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700/50"
-            >
-              <Shield className="w-4 h-4" />
-              <span>Compliance</span>
-            </Link>
-            <Link
-              href="/dashboard/admin/rates"
-              className="flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700/50"
-            >
-              <Sliders className="w-4 h-4" />
-              <span>Rate Management</span>
-            </Link>
-            <Link
-              href="/dashboard/admin/reports"
-              className="flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700/50"
-            >
-              <FileText className="w-4 h-4" />
-              <span>Reports</span>
-            </Link>
-            <Link
-              href="/dashboard/admin/settings"
-              className="flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700/50"
-            >
-              <Globe className="w-4 h-4" />
-              <span>System Settings</span>
-            </Link>
-          </nav>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 p-6">
-          <div className="max-w-7xl mx-auto space-y-6">
-            {/* Welcome Section */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold text-white">System Administration</h1>
-                <p className="text-slate-300 mt-1">Monitor and regulate payment activities across all organizations</p>
-              </div>
-              <div className="flex space-x-2">
+          <div className="flex space-x-2">
                 <Dialog open={isCompanyDialogOpen} onOpenChange={setIsCompanyDialogOpen}>
                   <DialogTrigger asChild>
                     <Button className="bg-blue-600 hover:bg-blue-700">
@@ -682,9 +598,10 @@ export default function AdminDashboard() {
                 </div>
               </TabsContent>
             </Tabs>
-          </div>
-        </main>
       </div>
-    </div>
+    </AdminLayout>
   )
 }
+
+// Export with route protection
+export default withRouteProtection(AdminDashboard, ['admin'])

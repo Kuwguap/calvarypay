@@ -8,7 +8,7 @@ import {
   AppError, 
   HttpStatusCode,
   User 
-} from '@eliteepay/shared';
+} from '@CalvaryPay/shared';
 import { config } from '../config';
 
 export interface RegisterRequest {

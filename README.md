@@ -1,4 +1,4 @@
-# EliteEpay - Elite e-Payment Ecosystem for Africa
+# CalvaryPay - Elite e-Payment Ecosystem for Africa
 
 A secure, scalable, and resilient payment infrastructure built for African financial services and cross-border payments.
 
@@ -13,7 +13,7 @@ A secure, scalable, and resilient payment infrastructure built for African finan
 ```bash
 # Clone the repository
 git clone <your-repo-url>
-cd elite-epayment-ecosystem
+cd calvarypay
 
 # Install dependencies and setup project
 npm run setup
@@ -29,7 +29,7 @@ npm run dev
 ## 📁 Project Structure
 
 ```
-elite-epayment-ecosystem/
+calvarypay/
 ├── apps/
 │   └── web/                 # Next.js frontend application
 ├── services/
@@ -129,7 +129,7 @@ cd services/payment-service && npm test
 
 ### Test Data
 The system includes seed data with demo users:
-- **Admin**: admin@eliteepay.com (password: Admin123!)
+- **Admin**: admin@CalvaryPay.com (password: Admin123!)
 - **Merchant**: merchant@demo.com (password: Merchant123!)
 - **Customer**: customer@demo.com (password: Customer123!)
 
@@ -196,7 +196,7 @@ npm run start:prod
 - Pricing Service: http://localhost:3005/docs
 
 ### Postman Collection
-Import `tests/postman/EliteEpay.postman_collection.json` for API testing.
+Import `tests/postman/CalvaryPay.postman_collection.json` for API testing.
 
 ## 🤝 Contributing
 
@@ -218,7 +218,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🆘 Support
 
-- 📧 Email: support@eliteepay.com
+- 📧 Email: support@CalvaryPay.com
 - 📖 Documentation: [docs/](./docs/)
 - 🐛 Issues: [GitHub Issues](https://github.com/your-org/elite-epayment-ecosystem/issues)
 

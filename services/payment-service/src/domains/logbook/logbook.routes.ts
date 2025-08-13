@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { body, query, param, validationResult } from 'express-validator';
 import multer from 'multer';
-import { jwtMiddleware, logger, AppError, HttpStatusCode } from '@eliteepay/shared';
+import { jwtMiddleware, logger, AppError, HttpStatusCode } from '@CalvaryPay/shared';
 import { LogbookService } from './logbook.service';
 
 const router = Router();

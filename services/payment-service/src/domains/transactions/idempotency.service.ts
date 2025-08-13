@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { redisService, logger, AppError, HttpStatusCode } from '@eliteepay/shared';
+import { redisService, logger, AppError, HttpStatusCode } from '@CalvaryPay/shared';
 
 export interface IdempotencyRecord {
   key: string;

@@ -81,12 +81,12 @@ export function loadEnvironmentConfig(): EnvironmentConfig {
     supabaseServiceRoleKey: getEnvVar('SUPABASE_SERVICE_ROLE_KEY', 'dummy-service-role-key'),
     
     // JWT Configuration
-    jwtSecret: getEnvVar('JWT_SECRET', 'eliteepay-jwt-secret-key-for-development-only'),
+    jwtSecret: getEnvVar('JWT_SECRET', 'CalvaryPay-jwt-secret-key-for-development-only'),
     jwtExpiresIn: getEnvVar('JWT_EXPIRES_IN', '15m'),
     jwtRefreshExpiresIn: getEnvVar('JWT_REFRESH_EXPIRES_IN', '7d'),
     
     // Database Configuration
-    databaseUrl: getEnvVar('DATABASE_URL', 'postgresql://dummy:dummy@localhost:5432/eliteepay_dev'),
+    databaseUrl: getEnvVar('DATABASE_URL', 'postgresql://dummy:dummy@localhost:5432/CalvaryPay_dev'),
     
     // Redis Configuration
     redisUrl: getEnvVar('REDIS_URL', 'redis://localhost:6379'),

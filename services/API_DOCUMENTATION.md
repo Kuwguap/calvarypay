@@ -1,12 +1,12 @@
-# EliteePay API Documentation
+# CalvaryPay API Documentation
 
 ## Overview
 
-EliteePay provides a comprehensive RESTful API for payment processing, user management, and audit logging. All APIs follow REST conventions and return JSON responses with consistent error handling.
+CalvaryPay provides a comprehensive RESTful API for payment processing, user management, and audit logging. All APIs follow REST conventions and return JSON responses with consistent error handling.
 
 ## Base URLs
 
-- **API Gateway**: `http://localhost:3000` (Production: `https://api.eliteepay.com`)
+- **API Gateway**: `http://localhost:3000` (Production: `https://api.calvarypay.com`)
 - **User Service**: `http://localhost:3001` (Internal)
 - **Payment Service**: `http://localhost:3002` (Internal)
 - **Audit Service**: `http://localhost:3003` (Internal)
@@ -15,7 +15,7 @@ EliteePay provides a comprehensive RESTful API for payment processing, user mana
 
 ## Authentication
 
-EliteePay uses JWT (JSON Web Tokens) for authentication. Include the token in the Authorization header:
+CalvaryPay uses JWT (JSON Web Tokens) for authentication. Include the token in the Authorization header:
 
 ```
 Authorization: Bearer <your-jwt-token>
@@ -249,7 +249,7 @@ Idempotency-Key: unique-key-123
 {
   "success": true,
   "data": {
-    "reference": "eliteepay_1234567890_abcd1234",
+    "reference": "CalvaryPay_1234567890_abcd1234",
     "authorizationUrl": "https://checkout.paystack.com/xyz",
     "accessCode": "access-code-123"
   }
@@ -258,13 +258,13 @@ Idempotency-Key: unique-key-123
 
 #### Verify Payment
 ```http
-POST /api/payments/verify/eliteepay_1234567890_abcd1234
+POST /api/payments/verify/CalvaryPay_1234567890_abcd1234
 Authorization: Bearer <token>
 ```
 
 #### Get Payment by Reference
 ```http
-GET /api/payments/reference/eliteepay_1234567890_abcd1234
+GET /api/payments/reference/CalvaryPay_1234567890_abcd1234
 Authorization: Bearer <token>
 ```
 
@@ -480,7 +480,7 @@ X-RateLimit-Reset: 1642248600
 
 ### Paystack Webhooks
 
-EliteePay automatically handles Paystack webhooks for payment updates:
+CalvaryPay automatically handles Paystack webhooks for payment updates:
 
 ```http
 POST /api/payments/webhooks/paystack
@@ -490,7 +490,7 @@ X-Paystack-Signature: signature
 {
   "event": "charge.success",
   "data": {
-    "reference": "eliteepay_1234567890_abcd1234",
+    "reference": "CalvaryPay_1234567890_abcd1234",
     "amount": 50000,
     "currency": "NGN",
     "status": "success"
@@ -502,15 +502,15 @@ X-Paystack-Signature: signature
 
 ### JavaScript/TypeScript
 ```bash
-npm install @eliteepay/sdk
+npm install @CalvaryPay/sdk
 ```
 
 ```javascript
-import { EliteePay } from '@eliteepay/sdk';
+import { CalvaryPay } from '@CalvaryPay/sdk';
 
-const client = new EliteePay({
+const client = new CalvaryPay({
   apiKey: 'your-api-key',
-  baseUrl: 'https://api.eliteepay.com'
+  baseUrl: 'https://api.CalvaryPay.com'
 });
 
 // Initiate payment
@@ -524,17 +524,17 @@ const payment = await client.payments.initiate({
 ## Testing
 
 ### Test Environment
-- Base URL: `https://api-test.eliteepay.com`
+- Base URL: `https://api-test.CalvaryPay.com`
 - Use test API keys and credentials
 - No real money transactions
 
 ### Postman Collection
 Import our Postman collection for easy API testing:
-[Download EliteePay.postman_collection.json](./postman/EliteePay.postman_collection.json)
+[Download CalvaryPay.postman_collection.json](./postman/CalvaryPay.postman_collection.json)
 
 ## Support
 
-- **Documentation**: https://docs.eliteepay.com
-- **Support Email**: support@eliteepay.com
-- **Developer Portal**: https://developers.eliteepay.com
-- **Status Page**: https://status.eliteepay.com
+- **Documentation**: https://docs.CalvaryPay.com
+- **Support Email**: support@CalvaryPay.com
+- **Developer Portal**: https://developers.CalvaryPay.com
+- **Status Page**: https://status.CalvaryPay.com

@@ -3,14 +3,15 @@
  * Handles user authentication, registration, and session management
  */
 
-import { apiClient, ApiResponse } from '../api';
+import { apiClient, ApiResponse } from '../api/index';
 
 export interface User {
   id: string;
   email: string;
   firstName: string;
   lastName: string;
-  role?: 'customer' | 'merchant' | 'admin' | 'employee';
+  phone?: string;
+  role: 'customer' | 'merchant' | 'admin' | 'employee';
   isActive: boolean;
   emailVerified: boolean;
   phoneVerified?: boolean;
@@ -26,9 +27,12 @@ export interface LoginRequest {
 export interface RegisterRequest {
   email: string;
   password: string;
+  confirmPassword: string;
   firstName: string;
   lastName: string;
-  role?: 'customer' | 'merchant';
+  phone: string;
+  role: 'customer' | 'merchant' | 'admin' | 'employee';
+  acceptTerms: boolean;
 }
 
 export interface LoginResponse {
@@ -93,17 +97,30 @@ export class AuthService {
    */
   async register(userData: RegisterRequest): Promise<LoginResponse> {
     try {
+      console.log('🔥 AuthService: Starting registration process', { email: userData.email, role: userData.role })
+
       // Use production register endpoint
       const response = await apiClient.post<LoginResponse>('/auth/register', userData);
 
+      if (response.error) {
+        console.error('❌ AuthService: Registration failed', response.error)
+        throw new Error(response.error.message);
+      }
+
+      if (!response.user) {
+        throw new Error('Registration failed: No user data received');
+      }
+
       // Store tokens if registration successful
-      if (response?.tokens) {
+      if (response.tokens) {
+        console.log('✅ AuthService: Registration successful, storing tokens')
         this.storeTokens(response.tokens);
       }
 
+      console.log('✅ AuthService: Registration completed successfully')
       return response;
     } catch (error) {
-      console.error('Registration error:', error);
+      console.error('❌ AuthService: Registration error:', error);
       throw error;
     }
   }
@@ -113,10 +130,10 @@ export class AuthService {
    */
   private storeTokens(tokens: { accessToken: string; refreshToken: string; expiresIn?: number }) {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('eliteepay_token', tokens.accessToken);
-      localStorage.setItem('eliteepay_refresh_token', tokens.refreshToken);
+      localStorage.setItem('CalvaryPay_token', tokens.accessToken);
+      localStorage.setItem('CalvaryPay_refresh_token', tokens.refreshToken);
       if (tokens.expiresIn) {
-        localStorage.setItem('eliteepay_token_expires', (Date.now() + tokens.expiresIn * 1000).toString());
+        localStorage.setItem('CalvaryPay_token_expires', (Date.now() + tokens.expiresIn * 1000).toString());
       }
     }
   }

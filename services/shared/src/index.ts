@@ -1,4 +1,4 @@
-// EliteEpay Shared Library - Main Export File
+// CalvaryPay Shared Library - Main Export File
 // This file exports all shared components for use across microservices
 
 // Configuration

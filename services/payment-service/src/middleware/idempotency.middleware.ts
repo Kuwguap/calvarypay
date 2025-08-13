@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { redisService, logger, AppError, HttpStatusCode } from '@eliteepay/shared';
+import { redisService, logger, AppError, HttpStatusCode } from '@CalvaryPay/shared';
 import { config } from '../config';
 import crypto from 'crypto';
 

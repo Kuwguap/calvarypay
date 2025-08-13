@@ -4,16 +4,49 @@
  */
 
 import { atom } from 'jotai';
-import { atomWithStorage } from 'jotai/utils';
-import { User } from '../services/auth.service';
 
-// User atom with localStorage persistence
-export const userAtom = atomWithStorage<User | null>('eliteepay_user', null);
+// Define User interface locally to avoid circular dependencies
+interface User {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: 'admin' | 'merchant' | 'employee' | 'customer';
+  isActive: boolean;
+}
+
+// Auth state interface
+interface AuthState {
+  user: User | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  error: string | null;
+}
+
+// Main auth store atom (no localStorage to avoid SSR issues)
+export const authStore = atom<AuthState>({
+  user: null,
+  isAuthenticated: false,
+  isLoading: true, // Start with loading true
+  error: null
+});
+
+// User atom derived from auth store
+export const userAtom = atom(
+  (get) => get(authStore).user,
+  (get, set, user: User | null) => {
+    const currentState = get(authStore);
+    set(authStore, {
+      ...currentState,
+      user,
+      isAuthenticated: user !== null && user.isActive
+    });
+  }
+);
 
 // Authentication status atom
 export const isAuthenticatedAtom = atom((get) => {
-  const user = get(userAtom);
-  return user !== null && user.isActive;
+  return get(authStore).isAuthenticated;
 });
 
 // User role atoms
@@ -43,19 +76,37 @@ export const isEmployeeAtom = atom((get) => {
 });
 
 // Loading states
-export const authLoadingAtom = atom(false);
+export const authLoadingAtom = atom(
+  (get) => get(authStore).isLoading,
+  (get, set, loading: boolean) => {
+    const currentState = get(authStore);
+    set(authStore, { ...currentState, isLoading: loading });
+  }
+);
+
 export const loginLoadingAtom = atom(false);
 export const registerLoadingAtom = atom(false);
 
 // Error states
-export const authErrorAtom = atom<string | null>(null);
+export const authErrorAtom = atom(
+  (get) => get(authStore).error,
+  (get, set, error: string | null) => {
+    const currentState = get(authStore);
+    set(authStore, { ...currentState, error });
+  }
+);
 
 // Actions
 export const setUserAtom = atom(
   null,
   (get, set, user: User | null) => {
-    set(userAtom, user);
-    set(authErrorAtom, null);
+    const currentState = get(authStore);
+    set(authStore, {
+      ...currentState,
+      user,
+      isAuthenticated: user !== null && user.isActive,
+      error: null
+    });
   }
 );
 
@@ -90,9 +141,12 @@ export const setAuthErrorAtom = atom(
 export const clearAuthAtom = atom(
   null,
   (get, set) => {
-    set(userAtom, null);
-    set(authErrorAtom, null);
-    set(authLoadingAtom, false);
+    set(authStore, {
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+      error: null
+    });
     set(loginLoadingAtom, false);
     set(registerLoadingAtom, false);
   }

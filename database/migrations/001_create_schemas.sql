@@ -1,5 +1,5 @@
--- EliteEpay Database Schema Creation
--- This file creates all the necessary schemas and tables for the EliteEpay system
+-- CalvaryPay Database Schema Creation
+-- This file creates all the necessary schemas and tables for the CalvaryPay system
 
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

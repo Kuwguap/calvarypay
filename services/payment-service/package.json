@@ -1,7 +1,7 @@
 {
-  "name": "@eliteepay/payment-service",
+  "name": "@CalvaryPay/payment-service",
   "version": "1.0.0",
-  "description": "Payment processing service with Paystack integration for EliteEpay",
+  "description": "Payment processing service with Paystack integration for CalvaryPay",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
@@ -14,7 +14,7 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
-    "@eliteepay/shared": "file:../shared",
+    "@CalvaryPay/shared": "file:../shared",
     "@types/multer": "^2.0.0",
     "@types/uuid": "^10.0.0",
     "axios": "^1.6.2",

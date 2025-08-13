@@ -1,4 +1,4 @@
-import { initializeEnvironment } from '@eliteepay/shared';
+import { initializeEnvironment } from '@CalvaryPay/shared';
 
 // Initialize environment configuration first
 initializeEnvironment();
@@ -8,7 +8,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import morgan from 'morgan';
-import { logger } from '@eliteepay/shared';
+import { logger } from '@CalvaryPay/shared';
 import { config } from './config';
 import { correlationMiddleware } from './middleware/correlation.middleware';
 // import { rateLimitMiddleware } from './middleware/rateLimit.middleware';

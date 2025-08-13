@@ -1,8 +1,8 @@
-# 🗄️ **EliteePay Database Setup Instructions**
+# 🗄️ **CalvaryPay Database Setup Instructions**
 
 ## **Critical: Database Setup Required for Authentication**
 
-The EliteePay authentication system requires a properly configured Supabase database. Follow these steps to set up the database and resolve timeout issues.
+The CalvaryPay authentication system requires a properly configured Supabase database. Follow these steps to set up the database and resolve timeout issues.
 
 ---
 
@@ -20,7 +20,7 @@ The EliteePay authentication system requires a properly configured Supabase data
 Copy and paste the following SQL into the Supabase SQL Editor and execute it:
 
 ```sql
--- EliteePay Database Schema
+-- CalvaryPay Database Schema
 -- Execute this in your Supabase SQL Editor
 
 -- Create users table
@@ -55,12 +55,12 @@ ON users FOR SELECT
 USING (auth.uid() = id);
 
 -- Insert test users with hashed passwords
--- Password for admin@eliteepay.com: Admin123!
--- Password for test@eliteepay.com: Test123!
+-- Password for admin@CalvaryPay.com: Admin123!
+-- Password for test@CalvaryPay.com: Test123!
 INSERT INTO users (id, email, password_hash, first_name, last_name, role, is_active, email_verified) VALUES
 (
   '00000000-0000-0000-0000-000000000001',
-  'admin@eliteepay.com',
+  'admin@CalvaryPay.com',
   '$2a$12$QYyJgDVX5eHZ3BBgGaMGPeQCM8jKjjnGFtPBvg7LwpIuS61ZP/jUu',
   'System',
   'Administrator',
@@ -70,7 +70,7 @@ INSERT INTO users (id, email, password_hash, first_name, last_name, role, is_act
 ),
 (
   '00000000-0000-0000-0000-000000000002',
-  'test@eliteepay.com',
+  'test@CalvaryPay.com',
   '$2a$12$Wa.qrvBKCy1D1aJEbcRPF.aVVXylUmDWgb0A6R83.KrCGcqquUv9y',
   'Test',
   'User',
@@ -102,15 +102,15 @@ Once the database is set up, test the authentication:
 
 ### **Test Credentials:**
 - **Admin User**: 
-  - Email: `admin@eliteepay.com`
+  - Email: `admin@CalvaryPay.com`
   - Password: `Admin123!`
 - **Test User**: 
-  - Email: `test@eliteepay.com`
+  - Email: `test@CalvaryPay.com`
   - Password: `Test123!`
 
 ### **Testing Steps:**
 1. **Open Frontend**: http://localhost:3005/auth/signin
-2. **Enter Test Credentials**: Use `test@eliteepay.com` / `Test123!`
+2. **Enter Test Credentials**: Use `test@CalvaryPay.com` / `Test123!`
 3. **Submit Form**: The authentication should now work without timeout errors
 4. **Verify Success**: You should be redirected to the dashboard
 
@@ -152,7 +152,7 @@ Once the database is set up, test the authentication:
    ```bash
    curl -X POST http://localhost:3001/auth/login \
      -H "Content-Type: application/json" \
-     -d '{"email":"test@eliteepay.com","password":"Test123!"}'
+     -d '{"email":"test@CalvaryPay.com","password":"Test123!"}'
    ```
 
 ### **Common Issues:**
@@ -182,4 +182,4 @@ After completing these steps:
 - ✅ Users can log in with test credentials
 - ✅ Complete frontend-to-database authentication flow functional
 
-The EliteePay application will be fully operational with production-ready authentication!
+The CalvaryPay application will be fully operational with production-ready authentication!

@@ -1,6 +1,6 @@
 {
-  "name": "EliteePay",
-  "short_name": "EliteePay",
+  "name": "CalvaryPay",
+  "short_name": "CalvaryPay",
   "description": "Digital payment and logbook management platform",
   "start_url": "/",
   "display": "standalone",

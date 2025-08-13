@@ -1,4 +1,4 @@
-# EliteEpay Security Rules and Standards
+# CalvaryPay Security Rules and Standards
 
 ## Authentication Security Rules
 

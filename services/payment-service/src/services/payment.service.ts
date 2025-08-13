@@ -10,7 +10,7 @@ import {
   PaymentInitiateResponse,
   PaginationQuery,
   PaginationResult
-} from '@eliteepay/shared';
+} from '@CalvaryPay/shared';
 import { config } from '../config';
 import { IdempotencyService } from '../domains/transactions/idempotency.service';
 
@@ -93,7 +93,7 @@ export class PaymentService {
   async initiatePayment(request: PaymentRequest): Promise<PaymentInitiateResponse> {
     try {
       // Generate unique reference
-      const reference = `eliteepay_${Date.now()}_${uuidv4().substring(0, 8)}`;
+      const reference = `CalvaryPay_${Date.now()}_${uuidv4().substring(0, 8)}`;
 
       // Create transaction record
       const transaction = await this.createTransaction({

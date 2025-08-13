@@ -1,9 +1,12 @@
 /**
- * Logbook Service
- * Handles digital logbook entries, offline sync, and photo uploads
+ * Enhanced Logbook Service for CalvaryPay
+ * Handles digital logbook entries, offline sync, photo uploads, and enhanced security
  */
 
 import { apiClient, PaginationResult } from '../api';
+import { z } from 'zod';
+import { supabaseService } from '@/lib/supabase';
+import { enhancedSecurityService } from '@/lib/security/enhanced-security.service';
 
 export interface LogbookEntry {
   id: string;

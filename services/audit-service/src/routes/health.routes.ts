@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { logger, supabaseService, redisService } from '@eliteepay/shared';
+import { logger, supabaseService, redisService } from '@CalvaryPay/shared';
 import { config } from '../config';
 
 const router = Router();

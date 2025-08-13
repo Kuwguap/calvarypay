@@ -1,5 +1,5 @@
 /**
- * EliteePay API Client
+ * CalvaryPay API Client
  * Centralized API client with authentication, error handling, and correlation IDs
  */
 
@@ -86,7 +86,7 @@ class ApiClient {
 
           // Add authentication token if available
           if (typeof window !== 'undefined') {
-            const token = localStorage.getItem('eliteepay_token');
+            const token = localStorage.getItem('CalvaryPay_token');
             if (token) {
               config.headers['Authorization'] = `Bearer ${token}`;
             }
@@ -147,9 +147,9 @@ class ApiClient {
           if (error.response?.status === 401) {
             // Clear stored tokens
             if (typeof window !== 'undefined') {
-              localStorage.removeItem('eliteepay_token');
-              localStorage.removeItem('eliteepay_refresh_token');
-              localStorage.removeItem('eliteepay_user');
+              localStorage.removeItem('CalvaryPay_token');
+              localStorage.removeItem('CalvaryPay_refresh_token');
+              localStorage.removeItem('CalvaryPay_user');
 
               // Redirect to login if not already there
               if (window.location.pathname !== '/auth/signin') {
@@ -266,9 +266,9 @@ class ApiClient {
 
     // Store tokens and user data
     if (typeof window !== 'undefined') {
-      localStorage.setItem('eliteepay_token', response.tokens.accessToken);
-      localStorage.setItem('eliteepay_refresh_token', response.tokens.refreshToken);
-      localStorage.setItem('eliteepay_user', JSON.stringify(response.user));
+      localStorage.setItem('CalvaryPay_token', response.tokens.accessToken);
+      localStorage.setItem('CalvaryPay_refresh_token', response.tokens.refreshToken);
+      localStorage.setItem('CalvaryPay_user', JSON.stringify(response.user));
     }
 
     return response;
@@ -283,9 +283,9 @@ class ApiClient {
     } finally {
       // Clear stored data
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('eliteepay_token');
-        localStorage.removeItem('eliteepay_refresh_token');
-        localStorage.removeItem('eliteepay_user');
+        localStorage.removeItem('CalvaryPay_token');
+        localStorage.removeItem('CalvaryPay_refresh_token');
+        localStorage.removeItem('CalvaryPay_user');
       }
     }
   }
@@ -293,7 +293,7 @@ class ApiClient {
   async refreshToken() {
     if (typeof window === 'undefined') return null;
 
-    const refreshToken = localStorage.getItem('eliteepay_refresh_token');
+    const refreshToken = localStorage.getItem('CalvaryPay_refresh_token');
     if (!refreshToken) return null;
 
     try {
@@ -304,15 +304,15 @@ class ApiClient {
         };
       }>('/auth/refresh', { refreshToken });
 
-      localStorage.setItem('eliteepay_token', response.tokens.accessToken);
-      localStorage.setItem('eliteepay_refresh_token', response.tokens.refreshToken);
+      localStorage.setItem('CalvaryPay_token', response.tokens.accessToken);
+      localStorage.setItem('CalvaryPay_refresh_token', response.tokens.refreshToken);
 
       return response.tokens.accessToken;
     } catch (error) {
       // Clear invalid tokens
-      localStorage.removeItem('eliteepay_token');
-      localStorage.removeItem('eliteepay_refresh_token');
-      localStorage.removeItem('eliteepay_user');
+      localStorage.removeItem('CalvaryPay_token');
+      localStorage.removeItem('CalvaryPay_refresh_token');
+      localStorage.removeItem('CalvaryPay_user');
       throw error;
     }
   }
@@ -321,14 +321,14 @@ class ApiClient {
   getCurrentUser() {
     if (typeof window === 'undefined') return null;
     
-    const userStr = localStorage.getItem('eliteepay_user');
+    const userStr = localStorage.getItem('CalvaryPay_user');
     return userStr ? JSON.parse(userStr) : null;
   }
 
   isAuthenticated() {
     if (typeof window === 'undefined') return false;
     
-    return !!localStorage.getItem('eliteepay_token');
+    return !!localStorage.getItem('CalvaryPay_token');
   }
 }
 

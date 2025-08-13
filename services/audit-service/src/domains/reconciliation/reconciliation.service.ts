@@ -5,7 +5,7 @@ import {
   AppError, 
   HttpStatusCode,
   Transaction
-} from '@eliteepay/shared';
+} from '@CalvaryPay/shared';
 import { 
   ReconciliationMatch,
   ReconciliationCandidate,

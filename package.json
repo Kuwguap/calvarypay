@@ -1,7 +1,7 @@
 {
-  "name": "elite-epayment-ecosystem",
+  "name": "calvarypay",
   "version": "1.0.0",
-  "description": "Elite e-Payment Ecosystem for Africa - TWEEK 2025 Hackathon",
+  "description": "CalvaryPay - Elite e-Payment Ecosystem for Africa - TWEEK 2025 Hackathon",
   "main": "index.js",
   "scripts": {
     "setup": "npm run setup:deps && npm run setup:env",

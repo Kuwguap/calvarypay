@@ -6,7 +6,7 @@ import {
   User,
   PaginationQuery,
   PaginationResult
-} from '@eliteepay/shared';
+} from '@CalvaryPay/shared';
 
 export interface UpdateUserRequest {
   firstName?: string;

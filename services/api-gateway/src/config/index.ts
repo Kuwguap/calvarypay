@@ -1,4 +1,4 @@
-import { ServiceConfig, Environment } from '@eliteepay/shared';
+import { ServiceConfig, Environment } from '@CalvaryPay/shared';
 
 export interface GatewayConfig extends ServiceConfig {
   services: {

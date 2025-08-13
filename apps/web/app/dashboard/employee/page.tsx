@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -25,144 +26,88 @@ import {
   Search,
   Filter,
   Download,
-  User,
-  Bell,
-  Settings,
-  LogOut,
+  ArrowRight,
+  Eye,
 } from "lucide-react"
+import { EmployeeLayout } from "@/components/dashboard/role-based-layout"
+import { withRouteProtection } from "@/lib/auth/route-protection"
+import { useAuth } from "@/lib/hooks/use-auth"
+import { formatCurrency, formatDate } from "@/lib/utils"
+import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
 
-export default function EmployeeDashboard() {
+function EmployeeDashboard() {
+  const { user } = useAuth()
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
 
-  // Mock data
-  const transactions = [
-    {
-      id: "TXN001",
-      date: "2024-01-15",
-      description: "Fuel Purchase - Station A",
-      amount: 450.0,
-      status: "completed",
-      category: "Fuel",
-    },
-    {
-      id: "TXN002",
-      date: "2024-01-14",
-      description: "Maintenance - Vehicle Service",
-      amount: 1200.5,
-      status: "pending",
-      category: "Maintenance",
-    },
-    {
-      id: "TXN003",
-      date: "2024-01-13",
-      description: "Fuel Purchase - Station B",
-      amount: 380.75,
-      status: "completed",
-      category: "Fuel",
-    },
-    {
-      id: "TXN004",
-      date: "2024-01-12",
-      description: "Office Supplies",
-      amount: 125.0,
-      status: "completed",
-      category: "Supplies",
-    },
-  ]
+  // Fetch recent transactions
+  const { data: transactionsData, isLoading: transactionsLoading } = useQuery({
+    queryKey: ['recent-transactions'],
+    queryFn: async () => {
+      const response = await fetch('/api/payments/transactions?limit=5', {
+        headers: {
+          'Authorization': `Bearer ${user?.accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      })
 
-  const filteredTransactions = transactions.filter((transaction) => {
-    const matchesSearch = transaction.description.toLowerCase().includes(searchTerm.toLowerCase())
+      if (!response.ok) {
+        throw new Error('Failed to fetch transactions')
+      }
+
+      return response.json()
+    },
+    enabled: !!user?.accessToken,
+    staleTime: 30000 // 30 seconds
+  })
+
+  const transactions = transactionsData?.transactions || []
+
+  const filteredTransactions = transactions.filter((transaction: any) => {
+    const matchesSearch = !searchTerm ||
+      transaction.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      transaction.reference?.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filterStatus === "all" || transaction.status === filterStatus
     return matchesSearch && matchesFilter
   })
 
+  // Calculate stats from real data
+  const stats = transactions.reduce((acc: any, transaction: any) => {
+    acc.totalAmount += transaction.amount || 0
+    acc.totalTransactions++
+
+    if (transaction.status === 'pending') {
+      acc.pendingTransactions++
+      acc.pendingAmount += transaction.amount || 0
+    } else if (transaction.status === 'success') {
+      acc.successfulTransactions++
+    }
+
+    return acc
+  }, {
+    totalAmount: 0,
+    totalTransactions: 0,
+    pendingTransactions: 0,
+    pendingAmount: 0,
+    successfulTransactions: 0
+  })
+
+  stats.averageTransaction = stats.totalTransactions > 0 ? stats.totalAmount / stats.totalTransactions : 0
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Header */}
-      <header className="border-b border-slate-700/50 bg-slate-900/50 backdrop-blur-sm">
-        <div className="flex items-center justify-between px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <CreditCard className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-xl font-bold text-white">CalvaryPay</span>
-            </div>
-            <Badge className="bg-green-600/20 text-green-400 border-green-600/30">Employee</Badge>
-          </div>
-
-          <div className="flex items-center space-x-4">
-            <Button variant="ghost" size="sm" className="text-slate-300 hover:text-white">
-              <Bell className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="sm" className="text-slate-300 hover:text-white">
-              <Settings className="w-4 h-4" />
-            </Button>
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center">
-                <User className="w-4 h-4 text-slate-300" />
-              </div>
-              <span className="text-slate-300 text-sm">John Doe</span>
-            </div>
-            <Link href="/auth/signin">
-              <Button variant="ghost" size="sm" className="text-slate-300 hover:text-white">
-                <LogOut className="w-4 h-4" />
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="w-64 bg-slate-800/30 border-r border-slate-700/50 min-h-screen">
-          <nav className="p-4 space-y-2">
-            <Link
-              href="/dashboard/employee"
-              className="flex items-center space-x-3 px-3 py-2 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-600/30"
-            >
-              <TrendingUp className="w-4 h-4" />
-              <span>Overview</span>
-            </Link>
-            <Link
-              href="/dashboard/employee/transactions"
-              className="flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700/50"
-            >
-              <CreditCard className="w-4 h-4" />
-              <span>Transactions</span>
-            </Link>
-            <Link
-              href="/dashboard/employee/payments"
-              className="flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700/50"
-            >
-              <DollarSign className="w-4 h-4" />
-              <span>Make Payment</span>
-            </Link>
-            <Link
-              href="/dashboard/employee/profile"
-              className="flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700/50"
-            >
-              <User className="w-4 h-4" />
-              <span>Profile</span>
-            </Link>
-          </nav>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 p-6">
-          <div className="max-w-7xl mx-auto space-y-6">
+    <EmployeeLayout>
+      <div className="space-y-8">
             {/* Welcome Section */}
             <div className="flex items-center justify-between">
               <div>
-                <h1 className="text-3xl font-bold text-white">Welcome back, John!</h1>
-                <p className="text-slate-300 mt-1">Here's your payment activity overview</p>
+                <h1 className="text-3xl font-bold text-white mb-2">Welcome back, John!</h1>
+                <p className="text-slate-400">Here's your payment activity overview</p>
               </div>
               <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button className="bg-blue-600 hover:bg-blue-700">
+                  <Button className="bg-blue-600 hover:bg-blue-700 shadow-lg px-6 py-3 font-medium">
                     <Plus className="w-4 h-4 mr-2" />
                     New Payment
                   </Button>
@@ -218,71 +163,105 @@ export default function EmployeeDashboard() {
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <Card className="bg-slate-800/50 border-slate-700">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-300">Total Spent</CardTitle>
-                  <DollarSign className="h-4 w-4 text-slate-400" />
+              <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                  <CardTitle className="text-sm font-medium text-slate-400">Total Spent</CardTitle>
+                  <div className="p-2 bg-blue-600/20 rounded-lg">
+                    <DollarSign className="h-4 w-4 text-blue-400" />
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-white">₵2,156.25</div>
-                  <p className="text-xs text-slate-400">+12% from last month</p>
+                  {transactionsLoading ? (
+                    <Skeleton className="h-8 w-24 bg-slate-700" />
+                  ) : (
+                    <div className="text-2xl font-bold text-white mb-1">
+                      {formatCurrency(stats.totalAmount, 'NGN')}
+                    </div>
+                  )}
+                  <p className="text-xs text-slate-400">
+                    Across {stats.totalTransactions} transactions
+                  </p>
                 </CardContent>
               </Card>
 
-              <Card className="bg-slate-800/50 border-slate-700">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-300">Transactions</CardTitle>
-                  <CreditCard className="h-4 w-4 text-slate-400" />
+              <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                  <CardTitle className="text-sm font-medium text-slate-400">Transactions</CardTitle>
+                  <div className="p-2 bg-emerald-600/20 rounded-lg">
+                    <CreditCard className="h-4 w-4 text-emerald-400" />
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-white">24</div>
-                  <p className="text-xs text-slate-400">+3 from last week</p>
+                  {transactionsLoading ? (
+                    <Skeleton className="h-8 w-16 bg-slate-700" />
+                  ) : (
+                    <div className="text-2xl font-bold text-white mb-1">{stats.successfulTransactions}</div>
+                  )}
+                  <p className="text-xs text-emerald-400">
+                    {stats.totalTransactions > 0 ? Math.round((stats.successfulTransactions / stats.totalTransactions) * 100) : 0}% success rate
+                  </p>
                 </CardContent>
               </Card>
 
-              <Card className="bg-slate-800/50 border-slate-700">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-300">Pending</CardTitle>
-                  <Clock className="h-4 w-4 text-slate-400" />
+              <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                  <CardTitle className="text-sm font-medium text-slate-400">Pending</CardTitle>
+                  <div className="p-2 bg-amber-600/20 rounded-lg">
+                    <Clock className="h-4 w-4 text-amber-400" />
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-white">1</div>
-                  <p className="text-xs text-slate-400">₵1,200.50 pending</p>
+                  {transactionsLoading ? (
+                    <Skeleton className="h-8 w-16 bg-slate-700" />
+                  ) : (
+                    <div className="text-2xl font-bold text-white mb-1">{stats.pendingTransactions}</div>
+                  )}
+                  <p className="text-xs text-slate-400">
+                    {formatCurrency(stats.pendingAmount, 'NGN')} pending
+                  </p>
                 </CardContent>
               </Card>
 
-              <Card className="bg-slate-800/50 border-slate-700">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-300">Avg. Transaction</CardTitle>
-                  <TrendingUp className="h-4 w-4 text-slate-400" />
+              <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                  <CardTitle className="text-sm font-medium text-slate-400">Avg. Transaction</CardTitle>
+                  <div className="p-2 bg-purple-600/20 rounded-lg">
+                    <TrendingUp className="h-4 w-4 text-purple-400" />
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-white">₵289.81</div>
-                  <p className="text-xs text-slate-400">-5% from last month</p>
+                  {transactionsLoading ? (
+                    <Skeleton className="h-8 w-20 bg-slate-700" />
+                  ) : (
+                    <div className="text-2xl font-bold text-white mb-1">
+                      {formatCurrency(stats.averageTransaction, 'NGN')}
+                    </div>
+                  )}
+                  <p className="text-xs text-slate-400">Per transaction</p>
                 </CardContent>
               </Card>
             </div>
 
             {/* Recent Transactions */}
-            <Card className="bg-slate-800/50 border-slate-700">
-              <CardHeader>
+            <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+              <CardHeader className="pb-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle className="text-white">Recent Transactions</CardTitle>
-                    <CardDescription className="text-slate-300">Your latest payment activities</CardDescription>
+                    <CardTitle className="text-white text-lg font-semibold">Recent Transactions</CardTitle>
+                    <CardDescription className="text-slate-400 mt-1">Your latest payment activities</CardDescription>
                   </div>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-3">
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
                       <Input
                         placeholder="Search transactions..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10 bg-slate-700 border-slate-600 text-white w-64"
+                        className="pl-10 bg-slate-800 border-slate-700 text-white w-64 focus:border-blue-500 transition-colors"
                       />
                     </div>
                     <Select value={filterStatus} onValueChange={setFilterStatus}>
-                      <SelectTrigger className="w-32 bg-slate-700 border-slate-600 text-white">
+                      <SelectTrigger className="w-32 bg-slate-800 border-slate-700 text-white focus:border-blue-500">
                         <Filter className="w-4 h-4 mr-2" />
                         <SelectValue />
                       </SelectTrigger>
@@ -300,53 +279,112 @@ export default function EmployeeDashboard() {
                       <Download className="w-4 h-4 mr-2" />
                       Export
                     </Button>
+                    <Link href="/dashboard/employee/transactions">
+                      <Button
+                        size="sm"
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        <Eye className="w-4 h-4 mr-2" />
+                        View All
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </Button>
+                    </Link>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-slate-700">
-                      <TableHead className="text-slate-300">Transaction ID</TableHead>
-                      <TableHead className="text-slate-300">Date</TableHead>
-                      <TableHead className="text-slate-300">Description</TableHead>
-                      <TableHead className="text-slate-300">Category</TableHead>
-                      <TableHead className="text-slate-300">Amount</TableHead>
-                      <TableHead className="text-slate-300">Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredTransactions.map((transaction) => (
-                      <TableRow key={transaction.id} className="border-slate-700">
-                        <TableCell className="text-slate-300 font-mono">{transaction.id}</TableCell>
-                        <TableCell className="text-slate-300">{transaction.date}</TableCell>
-                        <TableCell className="text-white">{transaction.description}</TableCell>
-                        <TableCell className="text-slate-300">
-                          <Badge variant="outline" className="border-slate-600 text-slate-300">
-                            {transaction.category}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-white font-semibold">₵{transaction.amount.toFixed(2)}</TableCell>
-                        <TableCell>
-                          <Badge
-                            className={
-                              transaction.status === "completed"
-                                ? "bg-green-600/20 text-green-400 border-green-600/30"
-                                : "bg-yellow-600/20 text-yellow-400 border-yellow-600/30"
-                            }
-                          >
-                            {transaction.status}
-                          </Badge>
-                        </TableCell>
+              <CardContent className="p-0">
+                <div className="overflow-hidden rounded-lg">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-slate-800 bg-slate-800/30">
+                        <TableHead className="text-slate-400 font-medium py-4 px-6">Reference</TableHead>
+                        <TableHead className="text-slate-400 font-medium py-4">Date</TableHead>
+                        <TableHead className="text-slate-400 font-medium py-4">Description</TableHead>
+                        <TableHead className="text-slate-400 font-medium py-4">Currency</TableHead>
+                        <TableHead className="text-slate-400 font-medium py-4">Amount</TableHead>
+                        <TableHead className="text-slate-400 font-medium py-4">Status</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {transactionsLoading ? (
+                        Array.from({ length: 5 }).map((_, index) => (
+                          <TableRow key={index} className="border-slate-800">
+                            <TableCell className="py-4 px-6">
+                              <Skeleton className="h-4 w-24 bg-slate-700" />
+                            </TableCell>
+                            <TableCell className="py-4">
+                              <Skeleton className="h-4 w-20 bg-slate-700" />
+                            </TableCell>
+                            <TableCell className="py-4">
+                              <Skeleton className="h-4 w-32 bg-slate-700" />
+                            </TableCell>
+                            <TableCell className="py-4">
+                              <Skeleton className="h-6 w-20 bg-slate-700" />
+                            </TableCell>
+                            <TableCell className="py-4">
+                              <Skeleton className="h-4 w-16 bg-slate-700" />
+                            </TableCell>
+                            <TableCell className="py-4">
+                              <Skeleton className="h-6 w-20 bg-slate-700" />
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : filteredTransactions.length === 0 ? (
+                        <TableRow className="border-slate-800">
+                          <TableCell colSpan={6} className="text-center py-8 text-slate-400">
+                            No transactions found
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredTransactions.map((transaction: any, index: number) => (
+                          <TableRow
+                            key={transaction.id}
+                            className={`border-slate-800 hover:bg-slate-800/30 transition-colors ${
+                              index % 2 === 0 ? 'bg-slate-900/20' : 'bg-transparent'
+                            }`}
+                          >
+                            <TableCell className="text-slate-300 font-mono py-4 px-6 text-sm">
+                              {transaction.reference}
+                            </TableCell>
+                            <TableCell className="text-slate-300 py-4">
+                              {formatDate(transaction.createdAt)}
+                            </TableCell>
+                            <TableCell className="text-white font-medium py-4 max-w-xs truncate">
+                              {transaction.description || 'No description'}
+                            </TableCell>
+                            <TableCell className="py-4">
+                              <Badge variant="outline" className="border-slate-600 text-slate-300 bg-slate-800/50">
+                                {transaction.currency}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-white font-semibold py-4">
+                              {formatCurrency(transaction.amount, transaction.currency)}
+                            </TableCell>
+                            <TableCell className="py-4">
+                              <Badge
+                                className={
+                                  transaction.status === "success"
+                                    ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                                    : transaction.status === "pending"
+                                    ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                                    : "bg-red-500/20 text-red-400 border-red-500/30"
+                                }
+                              >
+                                {transaction.status}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
-          </div>
-        </main>
       </div>
-    </div>
+    </EmployeeLayout>
   )
 }
+
+// Export with route protection
+export default withRouteProtection(EmployeeDashboard, ['employee'])

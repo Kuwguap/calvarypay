@@ -8,7 +8,7 @@ import {
   AuditLog,
   PaginationQuery,
   PaginationResult
-} from '@eliteepay/shared';
+} from '@CalvaryPay/shared';
 import { config } from '../config';
 
 export interface AuditLogQuery extends PaginationQuery {

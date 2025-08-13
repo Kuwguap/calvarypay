@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { body, query, param, validationResult } from 'express-validator';
-import { jwtMiddleware, logger, AppError, HttpStatusCode } from '@eliteepay/shared';
+import { jwtMiddleware, logger, AppError, HttpStatusCode } from '@CalvaryPay/shared';
 import { ReconciliationService } from './reconciliation.service';
 
 const router = Router();

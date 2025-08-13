@@ -5,7 +5,7 @@ import {
   AppError, 
   HttpStatusCode,
   PaginationResult
-} from '@eliteepay/shared';
+} from '@CalvaryPay/shared';
 import { 
   LogbookEntry, 
   CreateLogbookEntryRequest, 

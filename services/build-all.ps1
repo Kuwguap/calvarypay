@@ -1,7 +1,7 @@
-# EliteePay Microservices Build Script
+# CalvaryPay Microservices Build Script
 # This script builds all microservices and validates the integration
 
-Write-Host "🚀 Building EliteePay Microservices..." -ForegroundColor Green
+Write-Host "🚀 Building CalvaryPay Microservices..." -ForegroundColor Green
 Write-Host ""
 
 $services = @("shared", "api-gateway", "user-service", "payment-service", "audit-service")

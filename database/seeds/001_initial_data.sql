@@ -1,4 +1,4 @@
--- EliteEpay Initial Seed Data
+-- CalvaryPay Initial Seed Data
 -- This file populates the database with initial data for development and testing
 
 -- ========================================
@@ -30,7 +30,7 @@ INSERT INTO user_schema.users (
     phone_verified
 ) VALUES (
     '00000000-0000-0000-0000-000000000001',
-    'admin@eliteepay.com',
+    'admin@calvarypay.com',
     '+234-800-000-0001',
     '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj/RK.PmvlJO', -- Admin123!
     'System',
@@ -365,7 +365,7 @@ INSERT INTO audit_schema.audit_logs (
     'system.initialized',
     '00000000-0000-0000-0000-000000000001',
     'INIT_001',
-    '{"message": "EliteEpay system initialized with seed data", "version": "1.0.0"}',
+    '{"message": "CalvaryPay system initialized with seed data", "version": "1.0.0"}',
     'database'
 ),
 (

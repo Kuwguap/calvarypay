@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# EliteEpay Development Environment Setup
+# CalvaryPay Development Environment Setup
 # This script sets up the complete development environment for local development
 
 set -e  # Exit on any error
 
-echo "🚀 EliteEpay Development Environment Setup"
+echo "🚀 CalvaryPay Development Environment Setup"
 echo "=========================================="
 
 # Colors for output
@@ -280,7 +280,7 @@ validate_configuration() {
 # Main setup function
 main() {
     echo ""
-    print_status "Starting EliteEpay development environment setup..."
+    print_status "Starting CalvaryPay development environment setup..."
     echo ""
     
     check_prerequisites

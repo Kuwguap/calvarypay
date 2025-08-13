@@ -1,4 +1,4 @@
-// EliteEpay Shared TypeScript Types
+// CalvaryPay Shared TypeScript Types
 // This file contains all shared type definitions across the system
 
 // ========================================

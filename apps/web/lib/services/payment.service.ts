@@ -1,9 +1,13 @@
 /**
- * Payment Service
- * Handles payment processing, transactions, and payment history
+ * Enhanced Payment Service for CalvaryPay
+ * Handles Paystack integration, payment processing, transactions, and payment history
  */
 
 import { apiClient, PaginationResult } from '../api';
+import { z } from 'zod';
+import crypto from 'crypto';
+import { supabaseService } from '@/lib/supabase';
+import { enhancedSecurityService } from '@/lib/security/enhanced-security.service';
 
 export interface Transaction {
   id: string;

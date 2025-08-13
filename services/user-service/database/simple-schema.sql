@@ -1,4 +1,4 @@
--- EliteePay Simple Database Schema
+-- CalvaryPay Simple Database Schema
 -- Execute this in your Supabase SQL Editor: https://supabase.com/dashboard/project/diuaiagnlxsdqiaydghs/sql
 
 -- Create users table
@@ -33,12 +33,12 @@ ON users FOR SELECT
 USING (auth.uid() = id);
 
 -- Insert test users with hashed passwords
--- Password for admin@eliteepay.com: Admin123!
--- Password for test@eliteepay.com: Test123!
+-- Password for admin@CalvaryPay.com: Admin123!
+-- Password for test@CalvaryPay.com: Test123!
 INSERT INTO users (id, email, password_hash, first_name, last_name, role, is_active, email_verified) VALUES
 (
   '00000000-0000-0000-0000-000000000001',
-  'admin@eliteepay.com',
+  'admin@CalvaryPay.com',
   '$2a$12$QYyJgDVX5eHZ3BBgGaMGPeQCM8jKjjnGFtPBvg7LwpIuS61ZP/jUu',
   'System',
   'Administrator',
@@ -48,7 +48,7 @@ INSERT INTO users (id, email, password_hash, first_name, last_name, role, is_act
 ),
 (
   '00000000-0000-0000-0000-000000000002',
-  'test@eliteepay.com',
+  'test@CalvaryPay.com',
   '$2a$12$Wa.qrvBKCy1D1aJEbcRPF.aVVXylUmDWgb0A6R83.KrCGcqquUv9y',
   'Test',
   'User',

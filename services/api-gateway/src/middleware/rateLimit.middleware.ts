@@ -1,5 +1,5 @@
 import rateLimit from 'express-rate-limit';
-import { redisService, logger } from '@eliteepay/shared';
+import { redisService, logger } from '@CalvaryPay/shared';
 import { config } from '../config';
 
 // Redis store for rate limiting

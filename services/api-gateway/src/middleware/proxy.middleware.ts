@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
-import { logger, AppError } from '@eliteepay/shared';
+import { logger, AppError } from '@CalvaryPay/shared';
 
 export interface ProxyOptions {
   target: string;

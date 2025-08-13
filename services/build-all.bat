@@ -1,5 +1,5 @@
 @echo off
-echo 🚀 Building EliteePay Microservices...
+echo 🚀 Building CalvaryPay Microservices...
 echo.
 
 set SUCCESS_COUNT=0

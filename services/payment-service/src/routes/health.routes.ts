@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { logger, supabaseService } from '@eliteepay/shared';
+import { logger, supabaseService } from '@CalvaryPay/shared';
 import { config } from '../config';
 import axios from 'axios';
 

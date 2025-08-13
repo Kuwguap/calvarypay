@@ -4,7 +4,7 @@ import {
   AppError, 
   HttpStatusCode,
   Transaction
-} from '@eliteepay/shared';
+} from '@CalvaryPay/shared';
 import { PaymentService } from './payment.service';
 
 export interface PaystackWebhookPayload {

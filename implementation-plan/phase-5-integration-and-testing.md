@@ -66,7 +66,7 @@ Success Criteria:
 2.5 Return 200 quickly; offload heavy work to background jobs (BullMQ)
 
 3. Test Data & Postman
-3.1 Create ./tests/postman/EliteEpay.postman_collection.json with folders: Auth, Payments, Logbook, Pricing, Audit
+3.1 Create ./tests/postman/CalvaryPay.postman_collection.json with folders: Auth, Payments, Logbook, Pricing, Audit
 3.2 Add environment file with baseUrl=http://localhost:3000 and auth tokens
 3.3 Provide sample payloads for initiate payment and logbook entries
 3.4 Document pre-request scripts to set correlationId

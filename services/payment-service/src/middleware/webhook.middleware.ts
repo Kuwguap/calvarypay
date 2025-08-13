@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { logger, AppError, HttpStatusCode } from '@eliteepay/shared';
+import { logger, AppError, HttpStatusCode } from '@CalvaryPay/shared';
 import { config } from '../config';
 import crypto from 'crypto';
 

@@ -85,7 +85,7 @@ async function insertTestUsers() {
     const testUsers = [
       {
         id: '00000000-0000-0000-0000-000000000001',
-        email: 'admin@eliteepay.com',
+        email: 'admin@CalvaryPay.com',
         password_hash: adminPasswordHash,
         first_name: 'System',
         last_name: 'Administrator',
@@ -95,7 +95,7 @@ async function insertTestUsers() {
       },
       {
         id: '00000000-0000-0000-0000-000000000002',
-        email: 'test@eliteepay.com',
+        email: 'test@CalvaryPay.com',
         password_hash: testPasswordHash,
         first_name: 'Test',
         last_name: 'User',

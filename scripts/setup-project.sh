@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# EliteEpay Project Setup Script
+# CalvaryPay Project Setup Script
 # This script creates the complete directory structure for local development
 
-echo "🚀 Setting up EliteEpay project structure..."
+echo "🚀 Setting up CalvaryPay project structure..."
 
 # Create main directories
 echo "📁 Creating main directories..."
@@ -214,7 +214,7 @@ EOF
 
 # Create README.md
 cat > README.md << 'EOF'
-# EliteEpay - Elite e-Payment Ecosystem for Africa
+# CalvaryPay - Elite e-Payment Ecosystem for Africa
 
 A secure, scalable, and resilient payment infrastructure built for African financial services and cross-border payments.
 

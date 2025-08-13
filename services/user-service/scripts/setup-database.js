@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Simple Database Setup Script for EliteePay
+ * Simple Database Setup Script for CalvaryPay
  * Creates the users table and test data directly via Supabase client
  */
 
@@ -23,7 +23,7 @@ if (!supabaseUrl || !supabaseServiceKey) {
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 async function setupDatabase() {
-  console.log('🚀 Setting up EliteePay database...');
+  console.log('🚀 Setting up CalvaryPay database...');
   
   try {
     // Create users table using SQL
@@ -90,7 +90,7 @@ async function createTestUsers() {
     const testUsers = [
       {
         id: '00000000-0000-0000-0000-000000000001',
-        email: 'admin@eliteepay.com',
+        email: 'admin@CalvaryPay.com',
         password_hash: adminPasswordHash,
         first_name: 'System',
         last_name: 'Administrator',
@@ -100,7 +100,7 @@ async function createTestUsers() {
       },
       {
         id: '00000000-0000-0000-0000-000000000002',
-        email: 'test@eliteepay.com',
+        email: 'test@calvarypay.com',
         password_hash: testPasswordHash,
         first_name: 'Test',
         last_name: 'User',
@@ -147,7 +147,7 @@ async function createTestUsers() {
 
 function getManualSQL() {
   return `
--- EliteePay Users Table Setup
+-- CalvaryPay Users Table Setup
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email VARCHAR(255) UNIQUE NOT NULL,
@@ -175,8 +175,8 @@ USING (true);
 
 -- Insert test users
 INSERT INTO users (id, email, password_hash, first_name, last_name, role, is_active, email_verified) VALUES
-('00000000-0000-0000-0000-000000000001', 'admin@eliteepay.com', '$2b$12$LQv3c1yqBwEHXw.9oC9.Ou3.0p.dMtxpkZvZJvKUKKKKKKKKKKKKK', 'System', 'Administrator', 'admin', true, true),
-('00000000-0000-0000-0000-000000000002', 'test@eliteepay.com', '$2b$12$LQv3c1yqBwEHXw.9oC9.Ou3.0p.dMtxpkZvZJvKUKKKKKKKKKKKKK', 'Test', 'User', 'customer', true, true)
+('00000000-0000-0000-0000-000000000001', 'admin@calvarypay.com', '$2b$12$LQv3c1yqBwEHXw.9oC9.Ou3.0p.dMtxpkZvZJvKUKKKKKKKKKKKKK', 'System', 'Administrator', 'admin', true, true),
+('00000000-0000-0000-0000-000000000002', 'test@calvarypay.com', '$2b$12$LQv3c1yqBwEHXw.9oC9.Ou3.0p.dMtxpkZvZJvKUKKKKKKKKKKKKK', 'Test', 'User', 'customer', true, true)
 ON CONFLICT (email) DO NOTHING;
   `;
 }

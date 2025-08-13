@@ -1,7 +1,7 @@
 {
-  "name": "@eliteepay/api-gateway",
+  "name": "@CalvaryPay/api-gateway",
   "version": "1.0.0",
-  "description": "API Gateway for EliteEpay microservices",
+  "description": "API Gateway for CalvaryPay microservices",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
@@ -14,7 +14,7 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
-    "@eliteepay/shared": "file:../shared",
+    "@CalvaryPay/shared": "file:../shared",
     "@types/uuid": "^10.0.0",
     "axios": "^1.6.2",
     "compression": "^1.7.4",

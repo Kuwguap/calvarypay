@@ -6,7 +6,7 @@ import {
   HttpStatusCode,
   PaginationResult,
   redisService
-} from '@eliteepay/shared';
+} from '@CalvaryPay/shared';
 import { 
   PriceConfig,
   CreatePriceRequest,

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Database Initialization Script for EliteePay User Service
+ * Database Initialization Script for CalvaryPay User Service
  * This script initializes the Supabase database with the required schema and test data
  */
 
@@ -25,7 +25,7 @@ if (!supabaseUrl || !supabaseServiceKey) {
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 async function initializeDatabase() {
-  console.log('🚀 Initializing EliteePay database...');
+  console.log('🚀 Initializing CalvaryPay database...');
   
   try {
     // Test connection
@@ -83,7 +83,7 @@ async function createTestUsers() {
   const testUsers = [
     {
       id: '00000000-0000-0000-0000-000000000001',
-      email: 'admin@eliteepay.com',
+      email: 'admin@CalvaryPay.com',
       password_hash: adminPasswordHash,
       first_name: 'System',
       last_name: 'Administrator',
@@ -94,7 +94,7 @@ async function createTestUsers() {
     },
     {
       id: '00000000-0000-0000-0000-000000000002',
-      email: 'test@eliteepay.com',
+      email: 'test@CalvaryPay.com',
       password_hash: testPasswordHash,
       first_name: 'Test',
       last_name: 'User',
@@ -144,7 +144,7 @@ async function testAuthentication() {
     const { data: user } = await supabase
       .from('users')
       .select('*')
-      .eq('email', 'test@eliteepay.com')
+      .eq('email', 'test@CalvaryPay.com')
       .eq('is_active', true)
       .single();
     

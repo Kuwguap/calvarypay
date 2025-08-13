@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { AppError, logger, HttpStatusCode } from '@eliteepay/shared';
+import { AppError, logger, HttpStatusCode } from '@CalvaryPay/shared';
 
 export interface ErrorRequest extends Request {
   correlationId: string;

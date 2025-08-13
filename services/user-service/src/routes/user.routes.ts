@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { body, param, validationResult } from 'express-validator';
-import { jwtMiddleware, logger, AppError, HttpStatusCode } from '@eliteepay/shared';
+import { jwtMiddleware, logger, AppError, HttpStatusCode } from '@CalvaryPay/shared';
 import { AuthService } from '../services/auth.service';
 import { UserService } from '../services/user.service';
 

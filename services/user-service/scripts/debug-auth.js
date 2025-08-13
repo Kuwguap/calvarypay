@@ -103,7 +103,7 @@ async function debugAuthentication() {
   }
 
   console.log('\n5. 🔍 SPECIFIC USER TEST');
-  const testEmail = 'test@eliteepay.com';
+  const testEmail = 'test@CalvaryPay.com';
   try {
     const { data: testUser, error: testUserError } = await serviceClient
       .from('users')

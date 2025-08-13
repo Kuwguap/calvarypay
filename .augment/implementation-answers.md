@@ -1,4 +1,4 @@
-# EliteEpay Implementation Questions - Definitive Answers
+# CalvaryPay Implementation Questions - Definitive Answers
 
 ## 1. Database Schema Specifics ✅
 
@@ -60,8 +60,8 @@
   "permissions": ["transactions:read", "transactions:write"],
   "iat": 1234567890,
   "exp": 1234567890,
-  "iss": "eliteepay-auth",
-  "aud": "eliteepay-services"
+  "iss": "CalvaryPay-auth",
+  "aud": "CalvaryPay-services"
 }
 ```
 

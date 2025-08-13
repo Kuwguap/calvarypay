@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { logger, AppError, HttpStatusCode } from '@eliteepay/shared';
+import { logger, AppError, HttpStatusCode } from '@CalvaryPay/shared';
 import { WebhookService } from '../services/webhook.service';
 import { webhookSignatureMiddleware } from '../middleware/webhook.middleware';
 

@@ -1,5 +1,5 @@
 import { Router, Request, Response, RequestHandler } from 'express';
-import { logger, redisService } from '@eliteepay/shared';
+import { logger, redisService } from '@CalvaryPay/shared';
 import { config } from '../config';
 import axios from 'axios';
 

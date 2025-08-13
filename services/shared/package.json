@@ -1,7 +1,7 @@
 {
-  "name": "@eliteepay/shared",
+  "name": "@CalvaryPay/shared",
   "version": "1.0.0",
-  "description": "Shared libraries and utilities for EliteEpay microservices",
+  "description": "Shared libraries and utilities for CalvaryPay microservices",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

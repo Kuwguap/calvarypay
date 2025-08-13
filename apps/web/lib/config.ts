@@ -1,5 +1,5 @@
 /**
- * EliteePay Frontend Configuration
+ * CalvaryPay Frontend Configuration
  * Centralized configuration management for the frontend application
  */
 
@@ -20,16 +20,16 @@ export const config = {
 
   // Application Configuration
   app: {
-    name: process.env.NEXT_PUBLIC_APP_NAME || 'EliteePay',
+    name: process.env.NEXT_PUBLIC_APP_NAME || 'CalvaryPay',
     version: process.env.NEXT_PUBLIC_APP_VERSION || '1.0.0',
     environment: process.env.NEXT_PUBLIC_ENVIRONMENT || 'development',
   },
 
   // Authentication Configuration
   auth: {
-    tokenKey: 'eliteepay_token',
-    refreshTokenKey: 'eliteepay_refresh_token',
-    userKey: 'eliteepay_user',
+    tokenKey: 'CalvaryPay_token',
+    refreshTokenKey: 'CalvaryPay_refresh_token',
+    userKey: 'CalvaryPay_user',
     sessionTimeout: 30 * 60 * 1000, // 30 minutes
   },
 
@@ -47,7 +47,7 @@ export const config = {
 
   // Offline Configuration
   offline: {
-    dbName: 'eliteepay_offline',
+    dbName: 'CalvaryPay_offline',
     dbVersion: 1,
     syncInterval: 30000, // 30 seconds
     maxRetries: 3,

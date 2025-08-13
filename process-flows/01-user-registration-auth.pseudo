@@ -142,8 +142,8 @@ FUNCTION loginUser(credentials):
             permissions: permissions,
             iat: NOW(),
             exp: NOW() + 15_MINUTES,
-            iss: "eliteepay-auth",
-            aud: "eliteepay-services"
+            iss: "CalvaryPay-auth",
+            aud: "CalvaryPay-services"
         }, JWT_SECRET)
         
         refreshToken = generateSecureToken()
@@ -244,8 +244,8 @@ FUNCTION refreshAccessToken(refreshToken):
             permissions: permissions,
             iat: NOW(),
             exp: NOW() + 15_MINUTES,
-            iss: "eliteepay-auth",
-            aud: "eliteepay-services"
+            iss: "CalvaryPay-auth",
+            aud: "CalvaryPay-services"
         }, JWT_SECRET)
         
         // Step 6: Rotate Refresh Token
@@ -295,8 +295,8 @@ FUNCTION validateJWTMiddleware(request, response, next):
         // Step 2: Verify JWT Token
         TRY
             payload = jwt.verify(token, JWT_SECRET, {
-                issuer: "eliteepay-auth",
-                audience: "eliteepay-services"
+                issuer: "CalvaryPay-auth",
+                audience: "CalvaryPay-services"
             })
         CATCH JWTError as e
             RETURN error(401, "INVALID_TOKEN", "Token validation failed")
