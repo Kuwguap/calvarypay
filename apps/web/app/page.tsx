@@ -1,8 +1,11 @@
+'use client'
+
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ArrowRight, Shield, BarChart3, Users, CreditCard, Building2, Eye } from "lucide-react"
 import Link from "next/link"
+import LandingPageSwitcher from "@/components/landing-page-switcher"
 
 export default function LandingPage() {
   return (
@@ -26,6 +29,7 @@ export default function LandingPage() {
             <a href="#monitoring" className="text-slate-300 hover:text-white transition-colors">
               Monitoring
             </a>
+            <LandingPageSwitcher className="text-slate-300 hover:text-white" />
             <Link href="/auth/signin">
               <Button variant="outline" className="border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent">
                 Sign In
@@ -45,9 +49,9 @@ export default function LandingPage() {
             Centralized Payment Regulation System
           </Badge>
           <h1 className="text-5xl md:text-6xl font-bold text-white mb-6 leading-tight">
-            Pay Fast, Pay Secure!
+          Financial infrastructure to
             <br />
-            <span className="text-blue-400">Pay with CalvaryPay</span>
+            <span className="text-blue-400">monitor your business</span>
           </h1>
           <p className="text-xl text-slate-300 mb-8 max-w-2xl mx-auto leading-relaxed">
             A centralized system for governments and institutions to regulate payments, providing consistent

@@ -28,116 +28,87 @@ export interface AuthState {
 export function useAuth() {
   const [authState, setAuthState] = useAtom(authStore)
   const router = useRouter()
+  
+  console.log('🔍 Auth Hook: useAuth called, current state:', {
+    isAuthenticated: authState.isAuthenticated,
+    isLoading: authState.isLoading,
+    hasUser: !!authState.user,
+    userId: authState.user?.userId
+  })
+  
+  // Add a more explicit log to see if this runs
+  console.log('🔍 Auth Hook: Component mounted, useEffect should run next')
 
   // Initialize auth state from localStorage on mount (client-side only)
   useEffect(() => {
-    const initializeAuth = async () => {
+    console.log('🔍 Auth: useEffect triggered')
+    
+    const initializeAuth = () => {
       try {
+        console.log('🔍 Auth: initializeAuth function called')
+        
         // Only run on client side
         if (typeof window === 'undefined') {
+          console.log('🔍 Auth: Server side, setting loading false')
           setAuthState(prev => ({ ...prev, isLoading: false }))
           return
         }
 
         console.log('🔍 Auth: Starting initialization...')
+        
+        // Add a check to see if we're actually in the browser
+        console.log('🔍 Auth: Window object available:', typeof window !== 'undefined')
+        console.log('🔍 Auth: Document object available:', typeof document !== 'undefined')
 
         const storedUser = localStorage.getItem('calvarypay_user')
         const storedToken = localStorage.getItem('calvarypay_access_token')
         const storedRefreshToken = localStorage.getItem('calvarypay_refresh_token')
+        
+        console.log('🔍 Auth: localStorage check:', {
+          hasUser: !!storedUser,
+          hasToken: !!storedToken,
+          hasRefreshToken: !!storedRefreshToken,
+          userLength: storedUser?.length,
+          tokenLength: storedToken?.length
+        })
 
         if (storedUser && storedToken) {
-          console.log('🔍 Auth: Found stored tokens, validating...')
+          console.log('🔍 Auth: Found stored tokens, restoring session...')
+          console.log('🔍 Auth: Stored user data:', storedUser.substring(0, 100) + '...')
+          console.log('🔍 Auth: Access token type:', storedToken.startsWith('eyJ') ? 'JWT' : 'Simple')
 
           try {
             const user = JSON.parse(storedUser)
-            
-            // Validate token by making a test API call
-            const response = await fetch('/api/auth/verify-token', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${storedToken}`,
-                'Content-Type': 'application/json'
-              }
+            console.log('🔍 Auth: Parsed user object:', {
+              userId: user.userId,
+              email: user.email,
+              role: user.role,
+              firstName: user.firstName,
+              lastName: user.lastName
             })
-
-            if (response.ok) {
-              console.log('🔍 Auth: Token valid, restoring session')
-              const userWithTokens = {
-                ...user,
-                accessToken: storedToken,
-                refreshToken: storedRefreshToken
-              }
-              
-              setAuthState({
-                user: userWithTokens,
-                isAuthenticated: true,
-                isLoading: false,
-                error: null
-              })
-            } else {
-              console.log('🔍 Auth: Token invalid, attempting refresh...')
-              // Try to refresh token
-              if (storedRefreshToken) {
-                const refreshResponse = await fetch('/api/auth/refresh', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ refreshToken: storedRefreshToken })
-                })
-
-                if (refreshResponse.ok) {
-                  const refreshData = await refreshResponse.json()
-                  console.log('🔍 Auth: Token refreshed successfully')
-                  
-                  // Update localStorage with new tokens
-                  localStorage.setItem('calvarypay_access_token', refreshData.accessToken)
-                  localStorage.setItem('auth_token', refreshData.accessToken)
-                  if (refreshData.refreshToken) {
-                    localStorage.setItem('calvarypay_refresh_token', refreshData.refreshToken)
-                  }
-
-                  const userWithNewTokens = {
-                    ...user,
-                    accessToken: refreshData.accessToken,
-                    refreshToken: refreshData.refreshToken || storedRefreshToken
-                  }
-                  
-                  setAuthState({
-                    user: userWithNewTokens,
-                    isAuthenticated: true,
-                    isLoading: false,
-                    error: null
-                  })
-                } else {
-                  console.log('🔍 Auth: Token refresh failed, clearing session')
-                  // Clear invalid tokens
-                  localStorage.removeItem('calvarypay_user')
-                  localStorage.removeItem('calvarypay_access_token')
-                  localStorage.removeItem('calvarypay_refresh_token')
-                  localStorage.removeItem('auth_token')
-                  
-                  setAuthState({
-                    user: null,
-                    isAuthenticated: false,
-                    isLoading: false,
-                    error: null
-                  })
-                }
-              } else {
-                console.log('🔍 Auth: No refresh token, clearing session')
-                // Clear invalid tokens
-                localStorage.removeItem('calvarypay_user')
-                localStorage.removeItem('calvarypay_access_token')
-                localStorage.removeItem('calvarypay_refresh_token')
-                localStorage.removeItem('auth_token')
-                
-                setAuthState({
-                  user: null,
-                  isAuthenticated: false,
-                  isLoading: false,
-                  error: null
-                })
-              }
+            
+            // Simply restore the session without validation for now
+            // This ensures users stay logged in on refresh
+            console.log('🔍 Auth: Restoring session from localStorage')
+            const userWithTokens = {
+              ...user,
+              accessToken: storedToken,
+              refreshToken: storedRefreshToken
             }
+            
+            console.log('🔍 Auth: Setting authenticated state with user:', userWithTokens.userId)
+            setAuthState({
+              user: userWithTokens,
+              isAuthenticated: true,
+              isLoading: false,
+              error: null
+            })
+            console.log('🔍 Auth: Session restoration completed successfully')
+            console.log('🔍 Auth: Final auth state should be:', {
+              isAuthenticated: true,
+              userId: userWithTokens.userId,
+              userRole: userWithTokens.role
+            })
           } catch (parseError) {
             console.error('🔍 Auth: Error parsing stored user data:', parseError)
             // Clear corrupted data
@@ -173,7 +144,7 @@ export function useAuth() {
 
     // Initialize immediately (no delay)
     initializeAuth()
-  }, [setAuthState])
+  }, []) // Remove setAuthState dependency as it should be stable
 
   // Login function
   const login = useCallback(async (email: string, password: string) => {

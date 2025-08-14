@@ -45,22 +45,43 @@ import { formatCurrency, formatDate } from "@/lib/utils"
 interface DashboardStats {
   totalTransactions: number
   totalRevenue: number
+  totalTransferVolume: number
+  totalFeesCollected: number
   activeEmployees: number
   pendingApprovals: number
   successRate: number
   monthlyGrowth: number
   accountBalance: number
+  averageTransactionAmount: number
+  feePercentage: number
+  transactionBreakdown: {
+    completed: number
+    pending: number
+    failed: number
+  }
 }
 
 interface RecentTransaction {
   id: string
   reference: string
-  employee: string
+  type: string
   amount: number
   currency: string
   status: string
   description: string
   createdAt: string
+  processedAt?: string
+  category: string
+  sender: string
+  senderEmail: string
+  senderRole: string
+  recipient: string
+  recipientEmail: string
+  recipientRole: string
+  transferType: string
+  fee: number
+  netAmount: number
+  metadata: any
 }
 
 interface Employee {
@@ -98,7 +119,15 @@ function CompanyDashboard() {
         throw new Error('Failed to fetch dashboard statistics')
       }
 
-      return response.json()
+      const data = await response.json()
+      console.log('🔍 Dashboard API Response:', data)
+      
+      // The API returns { success: true, stats: {...} }
+      if (data.success && data.stats) {
+        return data.stats
+      } else {
+        throw new Error('Invalid dashboard statistics response')
+      }
     },
     enabled: !!user?.accessToken,
     staleTime: 300000, // 5 minutes
@@ -124,7 +153,14 @@ function CompanyDashboard() {
       }
 
       const data = await response.json()
-      return data.transactions || []
+      console.log('🔍 Transactions API Response:', data)
+      
+      // The API returns { success: true, transactions: [...] }
+      if (data.success && data.transactions) {
+        return data.transactions
+      } else {
+        return []
+      }
     },
     enabled: !!user?.accessToken,
     staleTime: 60000 // 1 minute
@@ -149,7 +185,14 @@ function CompanyDashboard() {
       }
 
       const data = await response.json()
-      return data.employees || []
+      console.log('🔍 Employees API Response:', data)
+      
+      // The API returns { success: true, employees: [...] }
+      if (data.success && data.employees) {
+        return data.employees
+      } else {
+        return []
+      }
     },
     enabled: !!user?.accessToken,
     staleTime: 300000 // 5 minutes
@@ -226,7 +269,7 @@ function CompanyDashboard() {
         )}
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Account Balance */}
           <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
             <CardContent className="p-6">
@@ -242,7 +285,7 @@ function CompanyDashboard() {
                   )}
                 </div>
                 <div className="p-3 bg-purple-500/20 rounded-lg">
-                  <DollarSign className="w-6 h-6 text-purple-400" />
+                  <Wallet className="w-6 h-6 text-purple-400" />
                 </div>
               </div>
               <div className="flex items-center justify-between mt-4">
@@ -284,7 +327,7 @@ function CompanyDashboard() {
                 <div className="flex items-center mt-4">
                   <TrendingUp className="w-4 h-4 text-emerald-400 mr-1" />
                   <span className="text-emerald-400 text-sm font-medium">
-                    +{dashboardStats.monthlyGrowth.toFixed(1)}%
+                    +{(dashboardStats?.monthlyGrowth || 0).toFixed(1)}%
                   </span>
                   <span className="text-slate-400 text-sm ml-1">this month</span>
                 </div>
@@ -292,6 +335,69 @@ function CompanyDashboard() {
             </CardContent>
           </Card>
 
+          {/* Total Transfer Volume */}
+          <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-slate-400 text-sm font-medium">Transfer Volume</p>
+                  {statsLoading ? (
+                    <Skeleton className="h-8 w-24 bg-slate-700 mt-2" />
+                  ) : (
+                    <p className="text-2xl font-bold text-white">
+                      {formatCurrency(dashboardStats?.totalTransferVolume || 0, 'GHS')}
+                    </p>
+                  )}
+                </div>
+                <div className="p-3 bg-blue-500/20 rounded-lg">
+                  <Activity className="w-6 h-6 text-blue-400" />
+                </div>
+              </div>
+              {!statsLoading && dashboardStats && (
+                <div className="flex items-center mt-4">
+                  <BarChart3 className="w-4 h-4 text-blue-400 mr-1" />
+                  <span className="text-blue-400 text-sm font-medium">
+                    {formatCurrency(dashboardStats?.averageTransactionAmount || 0, 'GHS')}
+                  </span>
+                  <span className="text-slate-400 text-sm ml-1">avg transaction</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Fees Collected */}
+          <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-slate-400 text-sm font-medium">Fees Collected</p>
+                  {statsLoading ? (
+                    <Skeleton className="h-8 w-24 bg-slate-700 mt-2" />
+                  ) : (
+                    <p className="text-2xl font-bold text-white">
+                      {formatCurrency(dashboardStats?.totalFeesCollected || 0, 'GHS')}
+                    </p>
+                  )}
+                </div>
+                <div className="p-3 bg-amber-500/20 rounded-lg">
+                  <CreditCard className="w-6 h-6 text-amber-400" />
+                </div>
+              </div>
+              {!statsLoading && dashboardStats && (
+                <div className="flex items-center mt-4">
+                  <TrendingUp className="w-4 h-4 text-amber-400 mr-1" />
+                  <span className="text-amber-400 text-sm font-medium">
+                    {dashboardStats?.feePercentage?.toFixed(2) || 0}%
+                  </span>
+                  <span className="text-slate-400 text-sm ml-1">of volume</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Additional Stats Row */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Total Transactions */}
           <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
             <CardContent className="p-6">
@@ -302,19 +408,19 @@ function CompanyDashboard() {
                     <Skeleton className="h-8 w-16 bg-slate-700 mt-2" />
                   ) : (
                     <p className="text-2xl font-bold text-white">
-                      {dashboardStats?.totalTransactions.toLocaleString() || 0}
+                      {(dashboardStats?.totalTransactions || 0).toLocaleString()}
                     </p>
                   )}
                 </div>
-                <div className="p-3 bg-blue-500/20 rounded-lg">
-                  <Activity className="w-6 h-6 text-blue-400" />
+                <div className="p-3 bg-indigo-500/20 rounded-lg">
+                  <Activity className="w-6 h-6 text-indigo-400" />
                 </div>
               </div>
               {!statsLoading && dashboardStats && (
                 <div className="flex items-center mt-4">
                   <CheckCircle className="w-4 h-4 text-emerald-400 mr-1" />
                   <span className="text-emerald-400 text-sm font-medium">
-                    {dashboardStats.successRate.toFixed(1)}%
+                    {(dashboardStats?.successRate || 0).toFixed(1)}%
                   </span>
                   <span className="text-slate-400 text-sm ml-1">success rate</span>
                 </div>
@@ -329,19 +435,19 @@ function CompanyDashboard() {
                 <div>
                   <p className="text-slate-400 text-sm font-medium">Active Employees</p>
                   {statsLoading ? (
-                    <Skeleton className="h-8 w-12 bg-slate-700 mt-2" />
+                    <Skeleton className="h-8 w-16 bg-slate-700 mt-2" />
                   ) : (
                     <p className="text-2xl font-bold text-white">
-                      {dashboardStats?.activeEmployees || 0}
+                      {(dashboardStats?.activeEmployees || 0).toLocaleString()}
                     </p>
                   )}
                 </div>
-                <div className="p-3 bg-purple-500/20 rounded-lg">
-                  <Users className="w-6 h-6 text-purple-400" />
+                <div className="p-3 bg-green-500/20 rounded-lg">
+                  <Users className="w-6 h-6 text-green-400" />
                 </div>
               </div>
               <div className="flex items-center mt-4">
-                <Link href="/dashboard/company/employees" className="text-blue-400 text-sm hover:text-blue-300">
+                <Link href="/dashboard/company/employees" className="text-green-400 text-sm hover:text-green-300">
                   Manage employees →
                 </Link>
               </div>
@@ -355,10 +461,10 @@ function CompanyDashboard() {
                 <div>
                   <p className="text-slate-400 text-sm font-medium">Pending Approvals</p>
                   {statsLoading ? (
-                    <Skeleton className="h-8 w-12 bg-slate-700 mt-2" />
+                    <Skeleton className="h-8 w-16 bg-slate-700 mt-2" />
                   ) : (
                     <p className="text-2xl font-bold text-white">
-                      {dashboardStats?.pendingApprovals || 0}
+                      {(dashboardStats?.pendingApprovals || 0).toLocaleString()}
                     </p>
                   )}
                 </div>
@@ -366,14 +472,69 @@ function CompanyDashboard() {
                   <Clock className="w-6 h-6 text-yellow-400" />
                 </div>
               </div>
-              <div className="flex items-center mt-4">
-                <span className="text-yellow-400 text-sm">
-                  Requires attention
-                </span>
-              </div>
+              {!statsLoading && dashboardStats && (dashboardStats?.pendingApprovals || 0) > 0 && (
+                <div className="flex items-center mt-4">
+                  <AlertCircle className="w-4 h-4 text-yellow-400 mr-1" />
+                  <span className="text-yellow-400 text-sm font-medium">
+                    {dashboardStats?.pendingApprovals || 0} require attention
+                  </span>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
+
+        {/* Transaction Breakdown */}
+        {dashboardStats?.transactionBreakdown && (
+          <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="text-white text-xl font-semibold flex items-center">
+                <BarChart3 className="w-5 h-5 mr-2 text-blue-400" />
+                Transaction Breakdown
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Overview of transaction statuses
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-6">
+                <div className="text-center">
+                  <div className="text-3xl font-bold text-emerald-400">
+                    {dashboardStats?.transactionBreakdown?.completed || 0}
+                  </div>
+                  <div className="text-slate-400 text-sm">Completed</div>
+                  <div className="text-emerald-400 text-xs mt-1">
+                    {(dashboardStats?.totalTransactions || 0) > 0 
+                      ? Math.round(((dashboardStats?.transactionBreakdown?.completed || 0) / (dashboardStats?.totalTransactions || 1)) * 100)
+                      : 0}% of total
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-3xl font-bold text-yellow-400">
+                    {dashboardStats?.transactionBreakdown?.pending || 0}
+                  </div>
+                  <div className="text-slate-400 text-sm">Pending</div>
+                  <div className="text-yellow-400 text-xs mt-1">
+                    {(dashboardStats?.totalTransactions || 0) > 0 
+                      ? Math.round(((dashboardStats?.transactionBreakdown?.pending || 0) / (dashboardStats?.totalTransactions || 1)) * 100)
+                      : 0}% of total
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-3xl font-bold text-red-400">
+                    {dashboardStats?.transactionBreakdown?.failed || 0}
+                  </div>
+                  <div className="text-slate-400 text-sm">Failed</div>
+                  <div className="text-red-400 text-xs mt-1">
+                    {(dashboardStats?.totalTransactions || 0) > 0 
+                      ? Math.round(((dashboardStats?.transactionBreakdown?.failed || 0) / (dashboardStats?.totalTransactions || 1)) * 100)
+                      : 0}% of total
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Recent Activity */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -415,29 +576,105 @@ function CompanyDashboard() {
               ) : recentTransactions && recentTransactions.length > 0 ? (
                 <div className="space-y-4">
                   {recentTransactions.map((transaction) => (
-                    <div key={transaction.id} className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg hover:bg-slate-800/70 transition-colors">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center">
-                          <CreditCard className="w-5 h-5 text-blue-400" />
+                    <div key={transaction.id} className="p-4 bg-slate-800/50 rounded-lg hover:bg-slate-800/70 transition-colors">
+                      {/* Transaction Header */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center">
+                            <CreditCard className="w-4 h-4 text-blue-400" />
+                          </div>
+                          <div>
+                            <p className="text-white font-medium text-sm">
+                              {transaction.type === 'employee_transfer' ? 'Employee Transfer' : 
+                               transaction.type === 'budget_allocation' ? 'Budget Allocation' : 
+                               transaction.type}
+                            </p>
+                            <p className="text-slate-400 text-xs">
+                              Ref: {transaction.reference}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-white font-medium">{transaction.employee}</p>
-                          <p className="text-slate-400 text-sm truncate max-w-48">
-                            {transaction.description}
+                        <div className="text-right">
+                          <p className="text-white font-semibold">
+                            {formatCurrency(transaction.amount, transaction.currency)}
                           </p>
-                          <p className="text-slate-500 text-xs">
+                          <Badge className={getStatusColor(transaction.status)}>
+                            {transaction.status}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      {/* Transaction Details */}
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Description:</span>
+                          <span className="text-white">{transaction.description}</span>
+                        </div>
+                        
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">From:</span>
+                          <span className="text-white">
+                            {transaction.sender} ({transaction.senderRole})
+                          </span>
+                        </div>
+                        
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">To:</span>
+                          <span className="text-white">
+                            {transaction.recipient} ({transaction.recipientRole})
+                          </span>
+                        </div>
+
+                        {transaction.fee > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Fee:</span>
+                            <span className="text-amber-400">
+                              {formatCurrency(transaction.fee, transaction.currency)}
+                            </span>
+                          </div>
+                        )}
+
+                        {transaction.netAmount !== transaction.amount && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Net Amount:</span>
+                            <span className="text-emerald-400">
+                              {formatCurrency(transaction.netAmount, transaction.currency)}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Date:</span>
+                          <span className="text-slate-300">
                             {formatDate(transaction.createdAt)}
-                          </p>
+                          </span>
                         </div>
+
+                        {transaction.processedAt && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Processed:</span>
+                            <span className="text-slate-300">
+                              {formatDate(transaction.processedAt)}
+                            </span>
+                          </div>
+                        )}
                       </div>
-                      <div className="text-right">
-                        <p className="text-white font-semibold">
-                          {formatCurrency(transaction.amount, transaction.currency)}
-                        </p>
-                        <Badge className={getStatusColor(transaction.status)}>
-                          {transaction.status}
-                        </Badge>
-                      </div>
+
+                      {/* Transaction Metadata */}
+                      {transaction.metadata && Object.keys(transaction.metadata).length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-slate-700">
+                          <details className="text-xs">
+                            <summary className="text-slate-400 cursor-pointer hover:text-slate-300">
+                              View Details
+                            </summary>
+                            <div className="mt-2 p-2 bg-slate-900/50 rounded text-slate-300">
+                              <pre className="whitespace-pre-wrap">
+                                {JSON.stringify(transaction.metadata, null, 2)}
+                              </pre>
+                            </div>
+                          </details>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -7,8 +7,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { useAtom } from 'jotai'
-import { userAtom, loginLoadingAtom } from '@/lib/store/auth.store'
+import { useAuth } from '@/lib/hooks/use-auth'
 import { PageLoader } from '@/components/ui/loading-states'
 import { useErrorNotification } from '@/components/ui/notification-system'
 
@@ -106,14 +105,30 @@ export function RouteProtection({
 }: RouteProtectionProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const [user] = useAtom(userAtom)
-  const [isLoading] = useAtom(loginLoadingAtom)
+  const { user, isLoading } = useAuth() // Use the same hook instead of separate atoms
   const [isChecking, setIsChecking] = useState(true)
   const showError = useErrorNotification()
 
   useEffect(() => {
     const checkAccess = async () => {
       setIsChecking(true)
+      
+      console.log('🔒 Route Protection: Checking access for:', {
+        pathname,
+        isLoading,
+        hasUser: !!user,
+        userRole: user?.role,
+        userId: user?.id
+      })
+      
+      // Add more detailed logging
+      console.log('🔒 Route Protection: Auth state details:', {
+        isLoading,
+        userExists: !!user,
+        userRole: user?.role,
+        userId: user?.id,
+        authStoreState: 'checking...'
+      })
       
       // Wait for auth state to be determined
       if (isLoading) {
@@ -201,7 +216,7 @@ export function withRouteProtection<P extends object>(
 
 // Hook for checking current user permissions
 export function usePermissions() {
-  const [user] = useAtom(userAtom)
+  const { user } = useAuth()
   const pathname = usePathname()
   
   return {

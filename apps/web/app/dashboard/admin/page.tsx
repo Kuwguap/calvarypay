@@ -39,11 +39,20 @@ import {
   Sliders,
   RefreshCw,
   AlertTriangle,
+  Palette,
+  Monitor,
+  Smartphone,
+  Eye,
 } from "lucide-react"
 import Link from "next/link"
 import { AdminLayout } from "@/components/dashboard/role-based-layout"
 import { withRouteProtection } from "@/lib/auth/route-protection"
 import { useAuth } from "@/lib/hooks/use-auth"
+import { 
+  LANDING_PAGE_TEMPLATES, 
+  LandingPageTemplate,
+  getActiveLandingPage 
+} from '@/lib/config/landing-page.config'
 
 // Format currency helper
 const formatCurrency = (amount: number, currency: string = 'GHS') => {
@@ -651,6 +660,95 @@ function AdminDashboard() {
 
           <TabsContent value="settings">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Theme Management Card */}
+              <Card className="bg-slate-800/50 border-slate-700">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center space-x-2">
+                    <Palette className="w-5 h-5" />
+                    <span>Theme Management</span>
+                  </CardTitle>
+                  <CardDescription className="text-slate-300">
+                    Manage landing page themes and visual appearance
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-3">
+                    {LANDING_PAGE_TEMPLATES.map((template) => (
+                      <div 
+                        key={template.id}
+                        className={`p-3 rounded-lg border transition-all cursor-pointer ${
+                          template.isActive 
+                            ? 'border-blue-500 bg-blue-500/10' 
+                            : 'border-slate-600 hover:border-slate-500 hover:bg-slate-700/50'
+                        }`}
+                        onClick={() => {
+                          // Update active template
+                          const updatedTemplates = LANDING_PAGE_TEMPLATES.map(t => ({
+                            ...t,
+                            isActive: t.id === template.id
+                          }))
+                          
+                          // Save to localStorage for persistence
+                          localStorage.setItem('landing-page-templates', JSON.stringify(updatedTemplates))
+                          
+                          // Show success message
+                          console.log(`Theme changed to: ${template.name}`)
+                          
+                          // Force page refresh to apply changes
+                          window.location.reload()
+                        }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            <div className={`w-8 h-8 rounded-lg bg-gradient-to-r ${
+                              template.category === 'modern' ? 'from-purple-500 to-blue-500' :
+                              template.category === 'classic' ? 'from-gray-600 to-gray-800' :
+                              template.category === 'minimal' ? 'from-green-500 to-teal-500' :
+                              'from-blue-600 to-indigo-600'
+                            } flex items-center justify-center`}>
+                              {template.category === 'modern' ? <Palette className="w-4 h-4 text-white" /> :
+                               template.category === 'classic' ? <Monitor className="w-4 h-4 text-white" /> :
+                               template.category === 'minimal' ? <Smartphone className="w-4 h-4 text-white" /> :
+                               <Globe className="w-4 h-4 text-white" />}
+                            </div>
+                            <div>
+                              <div className="font-medium text-slate-200">{template.name}</div>
+                              <div className="text-xs text-slate-400">{template.category}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            {template.isActive && (
+                              <Badge className="bg-green-500 text-white text-xs">
+                                <CheckCircle className="w-3 h-3 mr-1" />
+                                Active
+                              </Badge>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-slate-600 text-slate-300 hover:bg-slate-700"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                window.open(template.path, '_blank')
+                              }}
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <div className="pt-2 border-t border-slate-600">
+                    <p className="text-xs text-slate-400">
+                      Users can switch between available themes using the theme switcher on landing pages.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* System Configuration Card */}
               <Card className="bg-slate-800/50 border-slate-700">
                 <CardHeader>
                   <CardTitle className="text-white">System Configuration</CardTitle>
@@ -683,6 +781,7 @@ function AdminDashboard() {
                 </CardContent>
               </Card>
 
+              {/* Notification Settings Card */}
               <Card className="bg-slate-800/50 border-slate-700">
                 <CardHeader>
                   <CardTitle className="text-white">Notification Settings</CardTitle>
@@ -709,6 +808,48 @@ function AdminDashboard() {
                       <p className="text-sm text-slate-400">Notify users of scheduled maintenance</p>
                     </div>
                     <Switch />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Theme Preview Card */}
+              <Card className="bg-slate-800/50 border-slate-700">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center space-x-2">
+                    <Eye className="w-5 h-5" />
+                    <span>Theme Preview</span>
+                  </CardTitle>
+                  <CardDescription className="text-slate-300">
+                    Quick access to view and test themes
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    {LANDING_PAGE_TEMPLATES.filter(t => t.isActive).map((template) => (
+                      <Button
+                        key={template.id}
+                        variant="outline"
+                        size="sm"
+                        className="border-slate-600 text-slate-300 hover:bg-slate-700"
+                        onClick={() => window.open(template.path, '_blank')}
+                      >
+                        <div className="flex items-center space-x-2">
+                          <div className={`w-3 h-3 rounded-full bg-gradient-to-r ${
+                            template.category === 'modern' ? 'from-purple-500 to-blue-500' :
+                            template.category === 'classic' ? 'from-gray-600 to-gray-800' :
+                            template.category === 'minimal' ? 'from-green-500 to-teal-500' :
+                            'from-blue-600 to-indigo-600'
+                          }`}></div>
+                          <span className="text-xs">{template.name}</span>
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
+                  
+                  <div className="pt-2 border-t border-slate-600">
+                    <p className="text-xs text-slate-400">
+                      Click to open themes in new tabs for preview and testing.
+                    </p>
                   </div>
                 </CardContent>
               </Card>

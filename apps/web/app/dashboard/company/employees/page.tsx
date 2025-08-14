@@ -76,14 +76,13 @@ function EmployeesPage() {
     email: "",
     firstName: "",
     lastName: "",
-    department: "none",
+    department: "",
     spendingLimit: ""
   })
   const [inviteErrors, setInviteErrors] = useState<Record<string, string>>({})
   const [emailSearchResults, setEmailSearchResults] = useState<any[]>([])
   const [isSearchingEmail, setIsSearchingEmail] = useState(false)
   const [showEmailSuggestions, setShowEmailSuggestions] = useState(false)
-  const [showSuccessMessage, setShowSuccessMessage] = useState(false)
 
   // Fetch employees
   const {
@@ -164,7 +163,7 @@ function EmployeesPage() {
         email: "",
         firstName: "",
         lastName: "",
-        department: "none",
+        department: "",
         spendingLimit: ""
       })
       setInviteErrors({})
@@ -173,8 +172,6 @@ function EmployeesPage() {
       setIsInviteDialogOpen(false)
 
       // Show success message
-      setShowSuccessMessage(true)
-      setTimeout(() => setShowSuccessMessage(false), 5000) // Hide after 5 seconds
       console.log('✅ Employee invitation sent successfully:', data)
 
       // Refresh employees list
@@ -236,7 +233,7 @@ function EmployeesPage() {
       email: inviteForm.email.trim(),
       firstName: inviteForm.firstName.trim(),
       lastName: inviteForm.lastName.trim(),
-      department: inviteForm.department === 'none' ? null : inviteForm.department,
+      department: inviteForm.department || null,
       spendingLimit: inviteForm.spendingLimit ? parseFloat(inviteForm.spendingLimit) : null
     }
 
@@ -515,7 +512,7 @@ function EmployeesPage() {
                         {emailSearchResults.length > 0 && emailSearchResults.filter(u => u.canInvite).length === 0 && (
                           <div className="p-3 text-center">
                             <p className="text-slate-400 text-sm">No available employees found</p>
-                            <p className="text-slate-500 text-xs">All found users are currently unavailable for invitation</p>
+                            <p className="text-slate-500 text-xs">All found users are either already employed or have pending invitations</p>
                           </div>
                         )}
                       </div>
@@ -527,7 +524,7 @@ function EmployeesPage() {
                         <div className="p-4 text-center">
                           <p className="text-slate-400 text-sm">No employees found with this email</p>
                           <p className="text-slate-500 text-xs mt-1">
-                            You can still send an invitation - they'll be able to join your organization
+                            You can still send an invitation - they'll need to create an account first
                           </p>
                         </div>
                       </div>
@@ -545,7 +542,7 @@ function EmployeesPage() {
                         <SelectValue placeholder="Select department (optional)" />
                       </SelectTrigger>
                       <SelectContent className="bg-slate-800 border-slate-700">
-                        <SelectItem value="none">No Department</SelectItem>
+                        <SelectItem value="">No Department</SelectItem>
                         {commonDepartments.map((dept) => (
                           <SelectItem key={dept} value={dept} className="text-white hover:bg-slate-700">
                             {dept}
@@ -634,16 +631,6 @@ function EmployeesPage() {
             </Dialog>
           </div>
         </div>
-
-        {/* Success Message */}
-        {showSuccessMessage && (
-          <Alert className="bg-emerald-500/20 border-emerald-500/30">
-            <CheckCircle className="h-4 w-4" />
-            <AlertDescription className="text-emerald-400">
-              Employee invitation sent successfully! The invitation will be processed and the employee will be notified.
-            </AlertDescription>
-          </Alert>
-        )}
 
         {/* Filters */}
         <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">

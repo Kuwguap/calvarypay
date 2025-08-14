@@ -32,7 +32,7 @@ export class EnhancedAuthMiddleware {
   private blacklistedTokens = new Set<string>()
   private readonly JWT_SECRET = process.env.JWT_SECRET || 'calvary-pay-jwt-secret-key-for-development-2025'
   private readonly REFRESH_SECRET = process.env.REFRESH_TOKEN_SECRET || 'calvary-pay-refresh-token-secret-for-development-2025'
-  private readonly ACCESS_TOKEN_EXPIRY = '15m'
+  private readonly ACCESS_TOKEN_EXPIRY = '24h'
   private readonly REFRESH_TOKEN_EXPIRY = '7d'
 
   constructor() {
@@ -106,31 +106,47 @@ export class EnhancedAuthMiddleware {
    */
   async verifyAccessToken(token: string): Promise<{ valid: boolean; payload?: TokenPayload; error?: string }> {
     try {
+      console.log('🔍 Token Verification: Starting verification for token length:', token.length)
+      
       // Check if token is blacklisted
       if (this.blacklistedTokens.has(token)) {
+        console.log('🔍 Token Verification: Token is blacklisted')
         return { valid: false, error: 'Token has been revoked' }
       }
 
       // Verify JWT signature and expiration
+      console.log('🔍 Token Verification: Verifying JWT with secret length:', this.JWT_SECRET.length)
       const payload = jwt.verify(token, this.JWT_SECRET, {
         issuer: 'CalvaryPay-auth',
         audience: 'CalvaryPay-services'
       }) as TokenPayload
 
+      console.log('🔍 Token Verification: JWT verified, payload:', {
+        userId: payload.userId,
+        email: payload.email,
+        role: payload.role,
+        sessionId: payload.sessionId
+      })
+
       // Additional validation
       if (!payload.userId || !payload.email || !payload.role || !payload.sessionId) {
+        console.log('🔍 Token Verification: Invalid payload structure')
         return { valid: false, error: 'Invalid token payload' }
       }
 
       // Check if session is still active
+      console.log('🔍 Token Verification: Checking session:', payload.sessionId)
       const sessionActive = await this.isSessionActive(payload.sessionId)
       
       if (!sessionActive) {
+        console.log('🔍 Token Verification: Session is not active')
         return { valid: false, error: 'Session has been terminated' }
       }
 
+      console.log('🔍 Token Verification: Token is valid')
       return { valid: true, payload }
     } catch (error) {
+      console.error('🔍 Token Verification: Error during verification:', error)
       if (error instanceof jwt.TokenExpiredError) {
         return { valid: false, error: 'Token has expired' }
       }
@@ -243,7 +259,11 @@ export class EnhancedAuthMiddleware {
       // Extract token from Authorization header
       const authHeader = request.headers.get('authorization')
       
+      console.log('🔍 Enhanced Auth: Starting authentication for request')
+      console.log('🔍 Enhanced Auth: Auth header:', authHeader ? `${authHeader.substring(0, 20)}...` : 'None')
+      
       if (!authHeader?.startsWith('Bearer ')) {
+        console.log('🔍 Enhanced Auth: No Bearer token found')
         return {
           authenticated: false,
           response: NextResponse.json(
@@ -254,10 +274,18 @@ export class EnhancedAuthMiddleware {
       }
 
       const token = authHeader.substring(7)
+      console.log('🔍 Enhanced Auth: Token extracted, length:', token.length)
+      console.log('🔍 Enhanced Auth: Token preview:', token.substring(0, 20) + '...')
       
       const verification = await this.verifyAccessToken(token)
+      console.log('🔍 Enhanced Auth: Token verification result:', {
+        valid: verification.valid,
+        error: verification.error,
+        hasPayload: !!verification.payload
+      })
 
       if (!verification.valid) {
+        console.log('🔍 Enhanced Auth: Token verification failed:', verification.error)
         return {
           authenticated: false,
           response: NextResponse.json(
@@ -267,6 +295,7 @@ export class EnhancedAuthMiddleware {
         }
       }
 
+      console.log('🔍 Enhanced Auth: Authentication successful for user:', verification.payload?.userId)
       return {
         authenticated: true,
         user: verification.payload

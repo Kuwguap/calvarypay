@@ -1,227 +1,158 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
-import { authService } from '@/lib/services/auth.service'
+import { supabaseService } from '@/lib/supabase'
+import { verifyPaymentAuth, verifyPaymentRole, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth/payment-auth'
 
 export async function GET(request: NextRequest) {
   try {
-    // Get authorization header
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: { message: 'Authorization token required' } },
-        { status: 401 }
-      )
+    console.log('📊 Employee Reports API: Starting report generation...')
+
+    // Verify authentication
+    const authResult = await verifyPaymentAuth(request)
+    if (!authResult.success || !authResult.user) {
+      console.log('📊 Employee Reports API: Authentication failed:', authResult.error)
+      return createUnauthorizedResponse(authResult.error || 'Authentication failed')
     }
 
-    const token = authHeader.substring(7)
-    
-    // Verify token and get user
-    const user = await authService.verifyToken(token)
-    if (!user) {
-      return NextResponse.json(
-        { error: { message: 'Invalid or expired token' } },
-        { status: 401 }
-      )
+    // Verify user has permission to access reports
+    if (!verifyPaymentRole(authResult.user, ['merchant', 'admin'])) {
+      console.log('📊 Employee Reports API: Insufficient permissions for user:', authResult.user.role)
+      return createForbiddenResponse('Only merchants and admins can access employee reports')
     }
 
-    // Only allow employees to access this endpoint
-    if (user.role !== 'employee') {
-      return NextResponse.json(
-        { error: { message: 'Access denied. Employee role required.' } },
-        { status: 403 }
-      )
-    }
-
-    // Get query parameters
+    const { user } = authResult
     const { searchParams } = new URL(request.url)
-    const days = parseInt(searchParams.get('days') || '30')
-    const reportType = searchParams.get('type') || 'summary'
+    const employeeId = searchParams.get('employeeId')
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
 
-    // Calculate date range
-    const endDate = new Date()
-    const startDate = new Date()
-    startDate.setDate(endDate.getDate() - days)
-
-    // Fetch transactions for the user within the date range
-    const { data: transactions, error: transactionsError } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('user_id', user.userId)
-      .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString())
-      .order('created_at', { ascending: false })
-
-    if (transactionsError) {
-      console.error('Transactions fetch error:', transactionsError)
+    if (!employeeId) {
       return NextResponse.json(
-        { error: { message: 'Failed to fetch transactions' } },
+        { error: { message: 'Employee ID is required' } },
+        { status: 400 }
+      )
+    }
+
+    console.log('📊 Employee Reports API: Generating report for employee:', employeeId)
+
+    // Build query for employee_transfers
+    let query = supabaseService.client
+      .from('employee_transfers')
+      .select(`
+        id,
+        transfer_reference,
+        amount_minor,
+        currency,
+        status,
+        transfer_type,
+        reason,
+        description,
+        created_at,
+        processed_at,
+        transfer_fee_minor,
+        net_amount_minor,
+        sender_id,
+        recipient_id,
+        metadata
+      `)
+      .or(`sender_id.eq.${employeeId},recipient_id.eq.${employeeId}`)
+
+    // Add date filters if provided
+    if (startDate) {
+      query = query.gte('created_at', startDate)
+    }
+    if (endDate) {
+      query = query.lte('created_at', endDate)
+    }
+
+    // Execute query
+    const { data: transfers, error: transfersError } = await query.order('created_at', { ascending: false })
+
+    if (transfersError) {
+      console.error('📊 Employee Reports API: Error fetching transfers:', transfersError)
+      return NextResponse.json(
+        { error: { message: 'Failed to fetch employee transfers' } },
         { status: 500 }
       )
     }
 
-    // Calculate summary statistics
-    const summary = {
-      totalTransactions: transactions.length,
-      totalAmount: 0,
-      successfulTransactions: 0,
-      failedTransactions: 0,
-      pendingTransactions: 0,
-      averageTransactionAmount: 0
+    // Get employee details
+    const { data: employee, error: employeeError } = await supabaseService.client
+      .from('calvary_users')
+      .select('id, first_name, last_name, email, role, department')
+      .eq('id', employeeId)
+      .single()
+
+    if (employeeError || !employee) {
+      console.error('📊 Employee Reports API: Error fetching employee details:', employeeError)
+      return NextResponse.json(
+        { error: { message: 'Employee not found' } },
+        { status: 404 }
+      )
     }
 
-    transactions.forEach(transaction => {
-      summary.totalAmount += transaction.amount || 0
-      
-      switch (transaction.status) {
-        case 'completed':
-        case 'success':
-          summary.successfulTransactions++
-          break
-        case 'failed':
-        case 'error':
-          summary.failedTransactions++
-          break
-        case 'pending':
-          summary.pendingTransactions++
-          break
-      }
+    // Calculate report statistics
+    const totalTransfers = transfers?.length || 0
+    const totalAmount = transfers?.reduce((sum, t) => sum + (t.amount_minor / 100), 0) || 0
+    const completedTransfers = transfers?.filter(t => t.status === 'completed').length || 0
+    const pendingTransfers = transfers?.filter(t => t.status === 'pending').length || 0
+    const failedTransfers = transfers?.filter(t => t.status === 'failed').length || 0
+    const successRate = totalTransfers > 0 ? (completedTransfers / totalTransfers) * 100 : 0
+
+    // Calculate fees
+    const totalFees = transfers?.reduce((sum, t) => sum + (t.transfer_fee_minor ? t.transfer_fee_minor / 100 : 0), 0) || 0
+
+    // Format transfers for response
+    const formattedTransfers = transfers?.map(transfer => ({
+      id: transfer.id,
+      reference: transfer.transfer_reference,
+      amount: transfer.amount_minor / 100,
+      currency: transfer.currency,
+      status: transfer.status,
+      type: transfer.transfer_type,
+      reason: transfer.reason,
+      description: transfer.description,
+      createdAt: transfer.created_at,
+      processedAt: transfer.processed_at,
+      fee: transfer.transfer_fee_minor ? transfer.transfer_fee_minor / 100 : 0,
+      netAmount: transfer.net_amount_minor ? transfer.net_amount_minor / 100 : 0,
+      isIncoming: transfer.recipient_id === employeeId,
+      isOutgoing: transfer.sender_id === employeeId
+    })) || []
+
+    console.log('📊 Employee Reports API: Report generated successfully')
+
+    return NextResponse.json({
+      employee: {
+        id: employee.id,
+        name: `${employee.first_name} ${employee.last_name}`,
+        email: employee.email,
+        role: employee.role,
+        department: employee.department
+      },
+      report: {
+        totalTransfers,
+        totalAmount,
+        completedTransfers,
+        pendingTransfers,
+        failedTransfers,
+        successRate,
+        totalFees,
+        period: {
+          startDate: startDate || 'all',
+          endDate: endDate || 'all'
+        }
+      },
+      transfers: formattedTransfers
     })
-
-    summary.averageTransactionAmount = summary.totalTransactions > 0 
-      ? summary.totalAmount / summary.totalTransactions 
-      : 0
-
-    // Calculate category breakdown
-    const categoryMap = new Map<string, { count: number; amount: number }>()
-    
-    transactions.forEach(transaction => {
-      const category = transaction.metadata?.category || 'other'
-      const existing = categoryMap.get(category) || { count: 0, amount: 0 }
-      categoryMap.set(category, {
-        count: existing.count + 1,
-        amount: existing.amount + (transaction.amount || 0)
-      })
-    })
-
-    const categoryBreakdown = Array.from(categoryMap.entries()).map(([category, data]) => ({
-      category,
-      count: data.count,
-      amount: data.amount,
-      percentage: summary.totalAmount > 0 ? (data.amount / summary.totalAmount) * 100 : 0
-    })).sort((a, b) => b.amount - a.amount)
-
-    // Calculate monthly trends (for the last 12 months if range is large enough)
-    const monthlyTrends: Array<{ month: string; transactions: number; amount: number }> = []
-    
-    if (days >= 30) {
-      const monthsToShow = Math.min(12, Math.ceil(days / 30))
-      
-      for (let i = monthsToShow - 1; i >= 0; i--) {
-        const monthDate = new Date()
-        monthDate.setMonth(monthDate.getMonth() - i)
-        const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
-        const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0)
-        
-        const monthTransactions = transactions.filter(t => {
-          const transactionDate = new Date(t.created_at)
-          return transactionDate >= monthStart && transactionDate <= monthEnd
-        })
-        
-        monthlyTrends.push({
-          month: monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-          transactions: monthTransactions.length,
-          amount: monthTransactions.reduce((sum, t) => sum + (t.amount || 0), 0)
-        })
-      }
-    }
-
-    // Get recent transactions (limit to 10 for the report)
-    const recentTransactions = transactions.slice(0, 10).map(transaction => ({
-      id: transaction.id,
-      reference: transaction.reference,
-      amount: transaction.amount,
-      currency: transaction.currency,
-      status: transaction.status,
-      description: transaction.description,
-      createdAt: transaction.created_at,
-      category: transaction.metadata?.category
-    }))
-
-    // Build response based on report type
-    let responseData = {
-      summary,
-      categoryBreakdown: [],
-      monthlyTrends: [],
-      recentTransactions: []
-    }
-
-    switch (reportType) {
-      case 'summary':
-        responseData = {
-          summary,
-          categoryBreakdown: categoryBreakdown.slice(0, 5), // Top 5 categories
-          monthlyTrends: [],
-          recentTransactions: recentTransactions.slice(0, 5)
-        }
-        break
-        
-      case 'detailed':
-        responseData = {
-          summary,
-          categoryBreakdown,
-          monthlyTrends,
-          recentTransactions
-        }
-        break
-        
-      case 'category':
-        responseData = {
-          summary,
-          categoryBreakdown,
-          monthlyTrends: [],
-          recentTransactions: []
-        }
-        break
-        
-      case 'trends':
-        responseData = {
-          summary,
-          categoryBreakdown: [],
-          monthlyTrends,
-          recentTransactions: []
-        }
-        break
-        
-      default:
-        responseData = {
-          summary,
-          categoryBreakdown: categoryBreakdown.slice(0, 5),
-          monthlyTrends: monthlyTrends.slice(-6), // Last 6 months
-          recentTransactions: recentTransactions.slice(0, 5)
-        }
-    }
-
-    // Log the report access
-    await supabase
-      .from('audit_logs')
-      .insert({
-        user_id: user.userId,
-        action: 'report_accessed',
-        resource_type: 'report',
-        resource_id: `employee_report_${reportType}`,
-        details: {
-          reportType,
-          dateRange: days,
-          transactionCount: transactions.length
-        }
-      })
-
-    return NextResponse.json(responseData)
 
   } catch (error) {
-    console.error('Employee report error:', error)
+    console.error('📊 Employee Reports API: Failed to generate report:', error)
     return NextResponse.json(
-      { error: { message: 'Internal server error' } },
+      {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to generate employee report'
+        }
+      },
       { status: 500 }
     )
   }

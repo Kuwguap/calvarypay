@@ -1,183 +1,138 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
-import { authService } from '@/lib/services/auth.service'
+import { enhancedAuthMiddleware } from '@/lib/auth/enhanced-auth.middleware'
+import { supabaseService } from '@/lib/supabase'
+import { BalanceService } from '@/lib/services/balance.service'
 
 export async function GET(request: NextRequest) {
   try {
-    // Get authorization header
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: { message: 'Authorization token required' } },
-        { status: 401 }
-      )
+    // Authenticate request
+    const authResult = await enhancedAuthMiddleware.authenticateRequest(request)
+    if (!authResult.authenticated) {
+      return authResult.response
     }
 
-    const token = authHeader.substring(7)
-    
-    // Verify token and get user
-    const user = await authService.verifyToken(token)
-    if (!user) {
+    // Only allow merchants and admins
+    if (!['merchant', 'admin'].includes(authResult.user.role)) {
       return NextResponse.json(
-        { error: { message: 'Invalid or expired token' } },
-        { status: 401 }
-      )
-    }
-
-    // Only allow merchants to access this endpoint
-    if (user.role !== 'merchant') {
-      return NextResponse.json(
-        { error: { message: 'Access denied. Merchant role required.' } },
+        { error: 'Access denied. Merchant or admin role required.' },
         { status: 403 }
       )
     }
 
-    // Get query parameters
     const { searchParams } = new URL(request.url)
-    const search = searchParams.get('search') || ''
-    const status = searchParams.get('status') || 'all'
-    const category = searchParams.get('category') || 'all'
-    const days = parseInt(searchParams.get('days') || '30')
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
+    const type = searchParams.get('type') // Optional filter by transaction type
+    const days = parseInt(searchParams.get('days') || '30') // Filter by recent days
 
-    // Get merchant's company ID
-    const companyId = user.userId
+    console.log('🔍 Merchant Transactions API: Fetching transactions for company:', authResult.user.userId)
 
-    // Calculate date range
-    const endDate = new Date()
-    const startDate = new Date()
-    startDate.setDate(endDate.getDate() - days)
+    // Calculate date filter
+    const dateFilter = new Date()
+    dateFilter.setDate(dateFilter.getDate() - days)
 
-    // Build query
-    let query = supabase
-      .from('transactions')
+    // For now, we'll use the existing employee_transfers table and EmployeeBalanceService
+    // TODO: When database migration is run, switch to using the new transactions table
+    
+    // Get transfers where company is sender or recipient
+    const { data: transfers, error: transfersError } = await supabaseService.client
+      .from('employee_transfers')
       .select(`
         id,
-        reference,
-        amount,
+        transfer_reference,
+        amount_minor,
         currency,
-        status,
+        sender_id,
+        recipient_id,
+        reason,
         description,
-        channel,
+        status,
         created_at,
-        metadata,
-        users!inner(
-          id,
-          first_name,
-          last_name,
-          email,
-          company_id
-        )
+        processed_at,
+        calvary_users!employee_transfers_sender_id_fkey(first_name, last_name, email, role),
+        calvary_users!employee_transfers_recipient_id_fkey(first_name, last_name, email, role)
       `)
-      .eq('users.company_id', companyId)
-      .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString())
+      .or(`sender_id.eq.${authResult.user.userId},recipient_id.eq.${authResult.user.userId}`)
+      .gte('created_at', dateFilter.toISOString())
       .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1)
 
-    // Apply filters
-    if (search) {
-      query = query.or(`reference.ilike.%${search}%,description.ilike.%${search}%,users.first_name.ilike.%${search}%,users.last_name.ilike.%${search}%,users.email.ilike.%${search}%`)
-    }
-
-    if (status !== 'all') {
-      query = query.eq('status', status)
-    }
-
-    if (category !== 'all') {
-      query = query.contains('metadata', { category })
-    }
-
-    // Apply pagination
-    if (limit > 0) {
-      query = query.range(offset, offset + limit - 1)
-    }
-
-    const { data: transactions, error: transactionsError } = await query
-
-    if (transactionsError) {
-      console.error('Transactions fetch error:', transactionsError)
+    if (transfersError) {
+      console.error('🔍 Merchant Transactions API: Error fetching transfers:', transfersError)
       return NextResponse.json(
-        { error: { message: 'Failed to fetch transactions' } },
+        { error: 'Failed to fetch transfers' },
         { status: 500 }
       )
     }
 
-    // Get total count for pagination
-    let countQuery = supabase
-      .from('transactions')
-      .select('id', { count: 'exact', head: true })
-      .eq('users.company_id', companyId)
-      .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString())
-
-    // Apply same filters to count query
-    if (search) {
-      countQuery = countQuery.or(`reference.ilike.%${search}%,description.ilike.%${search}%,users.first_name.ilike.%${search}%,users.last_name.ilike.%${search}%,users.email.ilike.%${search}%`)
+    // Get company balance data for additional transaction history
+    let companyTransactions: any[] = []
+    try {
+      const balanceData = BalanceService.getBalance(authResult.user.userId)
+      // TODO: Implement company transaction history when available
+    } catch (error) {
+      console.log('🔍 Merchant Transactions API: Could not fetch company transactions:', error)
     }
 
-    if (status !== 'all') {
-      countQuery = countQuery.eq('status', status)
-    }
-
-    if (category !== 'all') {
-      countQuery = countQuery.contains('metadata', { category })
-    }
-
-    const { count, error: countError } = await countQuery
-
-    if (countError) {
-      console.error('Count fetch error:', countError)
-    }
-
-    // Format the response
-    const formattedTransactions = transactions.map(transaction => ({
-      id: transaction.id,
-      reference: transaction.reference,
-      employee: `${transaction.users.first_name} ${transaction.users.last_name}`,
-      employeeEmail: transaction.users.email,
-      amount: transaction.amount,
-      currency: transaction.currency,
-      status: transaction.status,
-      description: transaction.description,
-      category: transaction.metadata?.category || 'other',
-      channel: transaction.channel,
-      createdAt: transaction.created_at,
-      metadata: transaction.metadata
+    // Format transfers for frontend
+    const formattedTransactions = (transfers || []).map(tx => ({
+      id: tx.id,
+      reference: tx.transfer_reference,
+      type: tx.sender_id === authResult.user.userId ? 'transfer_sent' : 'transfer_received',
+      amount: tx.amount_minor / 100, // Convert from minor units
+      currency: tx.currency,
+      isIncoming: tx.recipient_id === authResult.user.userId,
+      sender: tx.calvary_users ? {
+        name: `${tx.calvary_users.first_name} ${tx.calvary_users.last_name}`,
+        email: tx.calvary_users.email,
+        role: tx.calvary_users.role
+      } : null,
+      recipient: tx.calvary_users ? {
+        name: `${tx.calvary_users.first_name} ${tx.calvary_users.last_name}`,
+        email: tx.calvary_users.email,
+        role: tx.calvary_users.role
+      } : null,
+      reason: tx.reason,
+      description: tx.description,
+      status: tx.status,
+      timestamp: tx.created_at,
+      processedAt: tx.processed_at
     }))
 
-    // Log the access
-    await supabase
-      .from('audit_logs')
-      .insert({
-        user_id: user.userId,
-        action: 'transactions_accessed',
-        resource_type: 'transactions',
-        resource_id: 'merchant_transactions',
-        details: {
-          search,
-          status,
-          category,
-          days,
-          limit,
-          offset,
-          companyId,
-          transactionCount: formattedTransactions.length
+    // Calculate summary statistics
+    const summary = {
+      totalTransactions: formattedTransactions.length,
+      totalIncoming: formattedTransactions.filter(tx => tx.isIncoming).length,
+      totalOutgoing: formattedTransactions.filter(tx => !tx.isIncoming).length,
+      totalAmount: formattedTransactions.reduce((sum, tx) => sum + tx.amount, 0),
+      totalFees: formattedTransactions.reduce((sum, tx) => {
+        // Calculate fees based on transaction type
+        if (tx.type === 'transfer_sent') {
+          return sum + (tx.amount * 0.01) // 1% fee
         }
-      })
+        return sum
+      }, 0)
+    }
+
+    console.log('🔍 Merchant Transactions API: Successfully fetched transactions:', {
+      count: formattedTransactions.length,
+      summary
+    })
 
     return NextResponse.json({
       transactions: formattedTransactions,
-      total: count || 0,
+      summary,
+      total: formattedTransactions.length,
       limit,
       offset,
-      hasMore: (count || 0) > offset + limit
+      hasMore: false, // Simplified for now
+      dateFilter: dateFilter.toISOString()
     })
 
   } catch (error) {
-    console.error('Merchant transactions error:', error)
+    console.error('🔍 Merchant Transactions API: Unexpected error:', error)
     return NextResponse.json(
-      { error: { message: 'Internal server error' } },
+      { error: 'Failed to fetch transactions' },
       { status: 500 }
     )
   }

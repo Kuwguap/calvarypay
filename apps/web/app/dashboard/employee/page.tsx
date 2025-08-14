@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { useUserQuery, useRedisMutation, cacheInvalidation } from "@/lib/hooks/use-redis-query"
+import { useUserQuery, useRedisMutation } from "@/lib/hooks/use-redis-query"
+import { cacheInvalidation } from "@/lib/providers/redis-query-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -33,6 +34,7 @@ import {
   Mail,
   Receipt,
   RefreshCw,
+  Activity,
 } from "lucide-react"
 import { EmployeeLayout } from "@/components/dashboard/role-based-layout"
 import { withRouteProtection } from "@/lib/auth/route-protection"
@@ -40,6 +42,7 @@ import { useAuth } from "@/lib/hooks/use-auth"
 import { formatCurrency, formatDate } from "@/lib/utils"
 import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
+import TransactionHistory from "@/components/TransactionHistory"
 
 function EmployeeDashboard() {
   const { user } = useAuth()
@@ -63,7 +66,7 @@ function EmployeeDashboard() {
         `redis_cache_${user?.userId}_notifications`,
         `redis_cache_${user?.userId}_employeeBalance`,
         `redis_cache_${user?.userId}_company-info`,
-        `redis_cache_${user?.userId}_recent-transactions`
+        `redis_cache_${user?.userId}_employee-transactions`
       ]
       cacheKeys.forEach(key => localStorage.removeItem(key))
     }
@@ -72,7 +75,7 @@ function EmployeeDashboard() {
     await Promise.all([
       refetchNotifications(),
       refetchBalance(),
-      // Add other refetch functions if available
+      refetchEmployeeTransactions(),
     ])
   }
   const [searchTerm, setSearchTerm] = useState("")
@@ -104,34 +107,6 @@ function EmployeeDashboard() {
     {
       ttl: 1800, // 30 minutes
       tags: ['company-info', 'employee']
-    }
-  )
-
-  // Fetch recent transactions with Redis caching
-  const { 
-    data: transactionsData, 
-    isLoading: transactionsLoading,
-    isFromCache: transactionsFromCache 
-  } = useUserQuery(
-    user?.userId || '',
-    'recent-transactions',
-    async () => {
-      const response = await fetch('/api/payments/transactions?limit=5', {
-        headers: {
-          'Authorization': `Bearer ${user?.accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch transactions')
-      }
-
-      return response.json()
-    },
-    {
-      ttl: 300, // 5 minutes
-      tags: ['transactions', 'recent']
     }
   )
 
@@ -203,11 +178,48 @@ function EmployeeDashboard() {
 
       const result = await response.json()
       console.log('💳 Frontend: Balance data received:', result)
-      return result.data
+      return result
     },
     {
       ttl: 60, // 1 minute for faster updates
       tags: ['balance', 'employee']
+    }
+  )
+
+  // Fetch employee transactions for stats calculation
+  const { 
+    data: employeeTransactionsData, 
+    isLoading: employeeTransactionsLoading,
+    isFromCache: employeeTransactionsFromCache,
+    refetch: refetchEmployeeTransactions
+  } = useUserQuery(
+    user?.userId || '',
+    'employee-transactions',
+    async () => {
+      console.log('💳 Frontend: Fetching employee transactions for user:', user?.userId)
+      
+      const response = await fetch('/api/employee/transactions?limit=100', {
+        headers: {
+          'Authorization': `Bearer ${user?.accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      console.log('💳 Frontend: Employee transactions response status:', response.status)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('💳 Frontend: Employee transactions fetch failed:', errorText)
+        throw new Error('Failed to fetch employee transactions')
+      }
+
+      const result = await response.json()
+      console.log('💳 Frontend: Employee transactions data received:', result)
+      return result
+    },
+    {
+      ttl: 60, // 1 minute for faster updates
+      tags: ['transactions', 'employee']
     }
   )
 
@@ -272,7 +284,7 @@ function EmployeeDashboard() {
     }
   )
 
-  const transactions = transactionsData?.transactions || []
+  const transactions = employeeTransactionsData?.transactions || []
 
   const filteredTransactions = transactions.filter((transaction: any) => {
     const matchesSearch = !searchTerm ||
@@ -282,34 +294,47 @@ function EmployeeDashboard() {
     return matchesSearch && matchesFilter
   })
 
-  // Calculate stats from real data
-  const stats = transactions.reduce((acc: any, transaction: any) => {
-    acc.totalAmount += transaction.amount || 0
+  // Calculate stats from real employee transaction data
+  const stats = (employeeTransactionsData?.transactions || []).reduce((acc: any, transaction: any) => {
+    // Only count outgoing transactions (transfers sent) for spent amount
+    if (transaction.type === 'transfer_sent') {
+      acc.totalSpent += Math.abs(transaction.amount) || 0
+      acc.totalOutgoingTransactions++
+    }
+    
+    // Count all transactions for total
     acc.totalTransactions++
 
     if (transaction.status === 'pending') {
       acc.pendingTransactions++
-      acc.pendingAmount += transaction.amount || 0
-    } else if (transaction.status === 'success') {
+      acc.pendingAmount += Math.abs(transaction.amount) || 0
+    } else if (transaction.status === 'completed' || transaction.status === 'success') {
       acc.successfulTransactions++
     }
 
     return acc
   }, {
-    totalAmount: 0,
+    totalSpent: 0,
     totalTransactions: 0,
     pendingTransactions: 0,
     pendingAmount: 0,
-    successfulTransactions: 0
+    successfulTransactions: 0,
+    totalOutgoingTransactions: 0
   })
 
-  stats.averageTransaction = stats.totalTransactions > 0 ? stats.totalAmount / stats.totalTransactions : 0
+  // Calculate success rate
+  stats.successRate = stats.totalTransactions > 0 ? 
+    Math.round((stats.successfulTransactions / stats.totalTransactions) * 100) : 0
+
+  // Calculate average transaction amount
+  stats.averageTransaction = stats.totalTransactions > 0 ? 
+    stats.totalSpent / stats.totalOutgoingTransactions : 0
 
   return (
     <EmployeeLayout>
       <div className="space-y-8">
         {/* Cache Status Indicator */}
-        {(companyFromCache || transactionsFromCache || notificationsFromCache || balanceFromCache) && (
+        {(companyFromCache || employeeTransactionsFromCache || notificationsFromCache || balanceFromCache) && (
           <div className="flex items-center space-x-2 text-xs text-slate-400">
             <div className="w-2 h-2 bg-green-400 rounded-full"></div>
             <span>Some data loaded from cache for faster experience</span>
@@ -614,7 +639,7 @@ function EmployeeDashboard() {
                 <Skeleton className="h-8 w-24 bg-slate-700" />
               ) : (
                 <div className="text-2xl font-bold text-white">
-                  {formatCurrency(balanceData?.balance?.balance || 0, 'GHS')}
+                  {formatCurrency(balanceData?.data?.balance?.balance || 0, 'GHS')}
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-1">
@@ -638,7 +663,7 @@ function EmployeeDashboard() {
                 <Skeleton className="h-8 w-24 bg-slate-700" />
               ) : (
                 <div className="text-2xl font-bold text-white">
-                  {formatCurrency(balanceData?.balance?.totalReceived || 0, 'GHS')}
+                  {formatCurrency(balanceData?.data?.balance?.totalReceived || 0, 'GHS')}
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-1">
@@ -655,16 +680,16 @@ function EmployeeDashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              {transactionsLoading ? (
+              {employeeTransactionsLoading ? (
                 <Skeleton className="h-8 w-24 bg-slate-700" />
               ) : (
                 <div className="text-2xl font-bold text-white">
-                  {formatCurrency(stats.totalAmount, 'GHS')}
+                  {formatCurrency(stats.totalSpent || 0, 'GHS')}
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-1">
-                Across {stats.totalTransactions} transactions
-                {transactionsFromCache && (
+                Across {stats.totalOutgoingTransactions || 0} outgoing transactions
+                {employeeTransactionsFromCache && (
                   <span className="text-green-400 ml-1">• Cached</span>
                 )}
               </p>
@@ -679,15 +704,15 @@ function EmployeeDashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              {transactionsLoading ? (
+              {employeeTransactionsLoading ? (
                 <Skeleton className="h-8 w-24 bg-slate-700" />
               ) : (
                 <div className="text-2xl font-bold text-white">
-                  {formatCurrency(stats.pendingAmount, 'GHS')}
+                  {formatCurrency(stats.pendingAmount || 0, 'GHS')}
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-1">
-                {stats.pendingTransactions} pending transactions
+                {stats.pendingTransactions || 0} pending transactions
               </p>
             </CardContent>
           </Card>
@@ -700,17 +725,15 @@ function EmployeeDashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              {transactionsLoading ? (
+              {employeeTransactionsLoading ? (
                 <Skeleton className="h-8 w-24 bg-slate-700" />
               ) : (
                 <div className="text-2xl font-bold text-white">
-                  {stats.totalTransactions > 0 
-                    ? Math.round((stats.successfulTransactions / stats.totalTransactions) * 100)
-                    : 0}%
+                  {stats.successRate || 0}%
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-1">
-                Successful transactions
+                {stats.successfulTransactions || 0} successful transactions
               </p>
             </CardContent>
           </Card>
@@ -723,7 +746,7 @@ function EmployeeDashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              {transactionsLoading ? (
+              {employeeTransactionsLoading ? (
                 <Skeleton className="h-8 w-24 bg-slate-700" />
               ) : (
                 <div className="text-2xl font-bold text-white">
@@ -731,7 +754,7 @@ function EmployeeDashboard() {
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-1">
-                Per transaction
+                Per outgoing transaction
               </p>
             </CardContent>
           </Card>
@@ -808,139 +831,28 @@ function EmployeeDashboard() {
           </Card>
         )}
 
-        {/* Recent Transactions */}
+        {/* Transaction History */}
         <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-white text-lg font-semibold flex items-center">
                   <Receipt className="w-5 h-5 mr-2 text-blue-400" />
-                  Recent Transactions
-                  {transactionsFromCache && (
+                  Transaction History
+                  {employeeTransactionsFromCache && (
                     <Badge className="ml-2 bg-green-500/20 text-green-400 border-green-500/30 text-xs">
                       Cached
                     </Badge>
                   )}
                 </CardTitle>
                 <CardDescription className="text-slate-400">
-                  Your latest payment activity
+                  Your complete transaction history including transfers and budget allocations
                 </CardDescription>
-              </div>
-              <div className="flex items-center space-x-3">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
-                  <Input
-                    placeholder="Search transactions..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 bg-slate-800 border-slate-700 text-white focus:border-blue-500 w-64"
-                  />
-                </div>
-                <Select value={filterStatus} onValueChange={setFilterStatus}>
-                  <SelectTrigger className="bg-slate-800 border-slate-700 text-white w-32">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-800 border-slate-700">
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="success">Success</SelectItem>
-                    <SelectItem value="failed">Failed</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button variant="outline" size="sm" className="border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent">
-                  <Download className="w-4 h-4 mr-2" />
-                  Export
-                </Button>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-hidden rounded-lg">
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-slate-800 bg-slate-800/30">
-                    <TableHead className="text-slate-400 font-medium py-4 px-6">Reference</TableHead>
-                    <TableHead className="text-slate-400 font-medium py-4">Date</TableHead>
-                    <TableHead className="text-slate-400 font-medium py-4">Description</TableHead>
-                    <TableHead className="text-slate-400 font-medium py-4">Currency</TableHead>
-                    <TableHead className="text-slate-400 font-medium py-4">Amount</TableHead>
-                    <TableHead className="text-slate-400 font-medium py-4">Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {transactionsLoading ? (
-                    Array.from({ length: 5 }).map((_, index) => (
-                      <TableRow key={index} className="border-slate-800">
-                        <TableCell className="py-4 px-6">
-                          <Skeleton className="h-4 w-24 bg-slate-700" />
-                        </TableCell>
-                        <TableCell className="py-4">
-                          <Skeleton className="h-4 w-20 bg-slate-700" />
-                        </TableCell>
-                        <TableCell className="py-4">
-                          <Skeleton className="h-4 w-32 bg-slate-700" />
-                        </TableCell>
-                        <TableCell className="py-4">
-                          <Skeleton className="h-6 w-20 bg-slate-700" />
-                        </TableCell>
-                        <TableCell className="py-4">
-                          <Skeleton className="h-4 w-16 bg-slate-700" />
-                        </TableCell>
-                        <TableCell className="py-4">
-                          <Skeleton className="h-6 w-20 bg-slate-700" />
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : filteredTransactions.length === 0 ? (
-                    <TableRow className="border-slate-800">
-                      <TableCell colSpan={6} className="text-center py-8 text-slate-400">
-                        No transactions found
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    filteredTransactions.map((transaction: any, index: number) => (
-                      <TableRow
-                        key={transaction.id}
-                        className={`border-slate-800 hover:bg-slate-800/30 transition-colors ${
-                          index % 2 === 0 ? 'bg-slate-900/20' : 'bg-transparent'
-                        }`}
-                      >
-                        <TableCell className="text-slate-300 font-mono py-4 px-6 text-sm">
-                          {transaction.reference}
-                        </TableCell>
-                        <TableCell className="text-slate-300 py-4">
-                          {formatDate(transaction.createdAt)}
-                        </TableCell>
-                        <TableCell className="text-white font-medium py-4 max-w-xs truncate">
-                          {transaction.description || 'No description'}
-                        </TableCell>
-                        <TableCell className="py-4">
-                          <Badge variant="outline" className="border-slate-600 text-slate-300 bg-slate-800/50">
-                            {transaction.currency}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-white font-semibold py-4">
-                          {formatCurrency(transaction.amount, transaction.currency)}
-                        </TableCell>
-                        <TableCell className="py-4">
-                          <Badge
-                            className={
-                              transaction.status === "success"
-                                ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                                : transaction.status === "pending"
-                                ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
-                                : "bg-red-500/20 text-red-400 border-red-500/30"
-                            }
-                          >
-                            {transaction.status}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+          <CardContent>
+            <TransactionHistory />
           </CardContent>
         </Card>
       </div>

@@ -1,123 +1,75 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
-import { authService } from '@/lib/services/auth.service'
+import { supabaseService } from '@/lib/supabase'
+import { verifyPaymentAuth, verifyPaymentRole, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth/payment-auth'
 
 export async function GET(request: NextRequest) {
   try {
-    // Get authorization header
+    console.log('👥 Merchant Employees API: Starting employee fetch...')
+
+    // Verify authentication
     const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: { message: 'Authorization token required' } },
-        { status: 401 }
-      )
+    if (!authHeader?.startsWith('Bearer ')) {
+      console.log('👥 Merchant Employees API: No Bearer token found')
+      return createUnauthorizedResponse('Authorization token required')
     }
 
     const token = authHeader.substring(7)
-    
-    // Verify token and get user
-    const user = await authService.verifyToken(token)
-    if (!user) {
-      return NextResponse.json(
-        { error: { message: 'Invalid or expired token' } },
-        { status: 401 }
-      )
+    console.log('👥 Merchant Employees API: Token extracted, length:', token.length)
+
+    // Get user from token
+    const authResult = await verifyPaymentAuth(request)
+    if (!authResult.success || !authResult.user) {
+      console.log('👥 Merchant Employees API: Authentication failed')
+      return createUnauthorizedResponse('Authentication failed')
     }
 
-    // Only allow merchants to access this endpoint
-    if (user.role !== 'merchant') {
-      return NextResponse.json(
-        { error: { message: 'Access denied. Merchant role required.' } },
-        { status: 403 }
-      )
-    }
-
-    // Get query parameters
+    const user = authResult.user
     const { searchParams } = new URL(request.url)
-    const limit = parseInt(searchParams.get('limit') || '50')
-    const search = searchParams.get('search') || ''
-    const status = searchParams.get('status') || 'all'
+    const limit = parseInt(searchParams.get('limit') || '10')
 
-    // Get merchant's company ID
-    const companyId = user.userId
+    console.log('👥 Merchant Employees API: Fetching employees with limit:', limit)
 
-    // Build query - using only existing columns
-    let query = supabase
-      .from('calvary_users')
-      .select(`
-        id,
-        first_name,
-        last_name,
-        email,
-        is_active,
-        created_at
-      `)
-      .eq('role', 'employee')
-      .order('created_at', { ascending: false })
+    // Fetch real data from database
+    try {
+      const { data: employees, error: employeesError } = await supabaseService.client
+        .from('calvary_users')
+        .select('id, first_name, last_name, email, role, is_active, created_at')
+        .eq('role', 'employee')
+        .limit(limit)
 
-    // Apply filters
-    if (search) {
-      query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`)
-    }
+      if (employeesError) {
+        console.error('👥 Merchant Employees API: Error fetching employees:', employeesError)
+        return NextResponse.json({ error: 'Failed to fetch employees' }, { status: 500 })
+      }
 
-    if (status !== 'all') {
-      const isActive = status === 'active'
-      query = query.eq('is_active', isActive)
-    }
+      // Transform data to match expected format
+      const realEmployees = employees?.map(emp => ({
+        id: emp.id,
+        firstName: emp.first_name || '',
+        lastName: emp.last_name || '',
+        email: emp.email,
+        status: emp.is_active ? 'active' : 'inactive',
+        department: 'General', // Placeholder since department column doesn't exist yet
+        lastActive: emp.created_at,
+        balance: 0, // TODO: Get from balance service when available
+        currency: 'GHS'
+      })) || []
 
-    if (limit > 0) {
-      query = query.limit(limit)
-    }
-
-    const { data: employees, error: employeesError } = await query
-
-    if (employeesError) {
-      console.error('Employees fetch error:', employeesError)
-      return NextResponse.json(
-        { error: { message: 'Failed to fetch employees' } },
-        { status: 500 }
-      )
-    }
-
-    // Format the response
-    const formattedEmployees = employees.map(employee => ({
-      id: employee.id,
-      firstName: employee.first_name,
-      lastName: employee.last_name,
-      email: employee.email,
-      status: employee.is_active ? 'active' : 'inactive',
-      department: null, // Not available in current schema
-      lastActive: null, // Not available in current schema
-      joinedAt: employee.created_at,
-      spendingLimit: null // Not available in current schema
-    }))
-
-    // Log the access
-    await supabase
-      .from('audit_logs')
-      .insert({
-        user_id: user.userId,
-        action: 'employees_accessed',
-        resource_type: 'employees',
-        resource_id: 'merchant_employees',
-        details: {
-          limit,
-          search,
-          status,
-          companyId,
-          employeeCount: formattedEmployees.length
-        }
+      console.log('👥 Merchant Employees API: Returning real employees:', realEmployees.length)
+      return NextResponse.json({
+        success: true,
+        employees: realEmployees
       })
 
-    return NextResponse.json({
-      employees: formattedEmployees,
-      total: formattedEmployees.length
-    })
+    } catch (dbError) {
+      console.error('👥 Merchant Employees API: Database error:', dbError)
+      return NextResponse.json({ error: 'Database error' }, { status: 500 })
+    }
 
   } catch (error) {
-    console.error('Merchant employees error:', error)
+    console.error('👥 Merchant Employees API: Unexpected error:', error)
     return NextResponse.json(
-      { error: { message: 'Internal server error' } },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }

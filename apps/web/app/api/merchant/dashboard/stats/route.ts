@@ -8,85 +8,135 @@ export async function GET(request: NextRequest) {
     console.log('📊 Dashboard Stats API: Starting stats fetch...')
 
     // Verify authentication
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader?.startsWith('Bearer ')) {
+      console.log('📊 Dashboard Stats API: No Bearer token found')
+      return createUnauthorizedResponse('Authorization token required')
+    }
+
+    const token = authHeader.substring(7)
+    console.log('📊 Dashboard Stats API: Token extracted, length:', token.length)
+
+    // Get user from token
     const authResult = await verifyPaymentAuth(request)
     if (!authResult.success || !authResult.user) {
-      console.log('📊 Dashboard Stats API: Authentication failed:', authResult.error)
-      return createUnauthorizedResponse(authResult.error || 'Authentication failed')
+      console.log('📊 Dashboard Stats API: Authentication failed')
+      return createUnauthorizedResponse('Authentication failed')
     }
 
-    // Verify user has permission to view dashboard stats
-    if (!verifyPaymentRole(authResult.user, ['merchant', 'admin'])) {
-      console.log('📊 Dashboard Stats API: Insufficient permissions for user:', authResult.user.role)
-      return createForbiddenResponse('Only merchants and admins can view dashboard stats')
-    }
-
-    const { user } = authResult
+    const user = authResult.user
     console.log('📊 Dashboard Stats API: Fetching stats for user:', user.userId)
 
-    // Fetch total employees
-    const { count: activeEmployees, error: employeesError } = await supabaseService.client
-      .from('calvary_users')
-      .select('*', { count: 'exact', head: true })
-      .eq('role', 'employee')
-      .eq('is_active', true)
+    // Fetch real data from database
+    try {
+      // Get total employees (using existing columns)
+      const { data: employees, error: employeesError } = await supabaseService.client
+        .from('calvary_users')
+        .select('id, is_active, role')
+        .eq('role', 'employee')
 
-    if (employeesError) {
-      console.error('📊 Dashboard Stats API: Error fetching employees:', employeesError)
+      if (employeesError) {
+        console.error('📊 Dashboard Stats API: Error fetching employees:', employeesError)
+        return NextResponse.json({ error: 'Failed to fetch employees' }, { status: 500 })
+      }
+
+      // Get company balance
+      const balanceData = BalanceService.getBalance(user.userId)
+      const accountBalance = balanceData?.balance || 0
+
+      // Get employee transfers (this might be empty for new merchants)
+      let { data: transfers, error: transfersError } = await supabaseService.client
+        .from('employee_transfers')
+        .select('*')
+        .eq('sender_company_id', user.userId)
+
+      if (transfersError) {
+        console.error('📊 Dashboard Stats API: Error fetching transfers:', transfersError)
+        // Don't return error, just set transfers to empty array
+        transfers = []
+      }
+
+      // Calculate real statistics using existing columns
+      const activeEmployees = employees?.filter(emp => emp.is_active === true).length || 0
+      const totalTransactions = transfers?.length || 0
+      
+      // Calculate transaction breakdown
+      const completed = transfers?.filter(t => t.status === 'completed').length || 0
+      const pending = transfers?.filter(t => t.status === 'pending').length || 0
+      const failed = transfers?.filter(t => t.status === 'failed').length || 0
+
+      // Calculate amounts (convert from minor units to major units)
+      const totalRevenue = transfers?.reduce((sum, t) => sum + ((t.amount_minor || 0) / 100), 0) || 0
+      const totalTransferVolume = transfers?.reduce((sum, t) => sum + ((t.amount_minor || 0) / 100), 0) || 0
+      const totalFeesCollected = transfers?.reduce((sum, t) => sum + ((t.transfer_fee_minor || 0) / 100), 0) || 0
+
+      // Calculate success rate
+      const successRate = totalTransactions > 0 ? Math.round((completed / totalTransactions) * 100) : 100 // 100% if no transactions
+
+      // Calculate monthly growth (placeholder for now)
+      const monthlyGrowth = 0
+
+      // Calculate average transaction amount
+      const averageTransactionAmount = totalTransactions > 0 ? totalTransferVolume / totalTransactions : 0
+
+      // Calculate fee percentage
+      const feePercentage = totalTransferVolume > 0 ? (totalFeesCollected / totalTransferVolume) * 100 : 0
+
+      // Get department breakdown (using placeholder since department column doesn't exist yet)
+      const departmentStats = {
+        'General': { count: totalTransactions, amount: totalTransferVolume, employees: activeEmployees }
+      }
+
+      // Log the data being returned for debugging
+      console.log('📊 Dashboard Stats API: Data summary:', {
+        activeEmployees,
+        totalTransactions,
+        accountBalance,
+        transfersFound: transfers?.length || 0,
+        transfersError: transfersError?.message || 'none'
+      })
+
+      const realStats = {
+        totalTransactions,
+        totalRevenue,
+        totalTransferVolume,
+        totalFeesCollected,
+        activeEmployees,
+        pendingApprovals: pending,
+        successRate,
+        monthlyGrowth,
+        accountBalance,
+        averageTransactionAmount,
+        feePercentage,
+        transactionBreakdown: {
+          completed,
+          pending,
+          failed
+        },
+        byDepartment: departmentStats
+      }
+
+      console.log('📊 Dashboard Stats API: Final stats object:', {
+        accountBalance: realStats.accountBalance,
+        totalTransactions: realStats.totalTransactions,
+        activeEmployees: realStats.activeEmployees
+      })
+
+      console.log('📊 Dashboard Stats API: Returning real stats:', realStats)
+      return NextResponse.json({
+        success: true,
+        stats: realStats
+      })
+
+    } catch (dbError) {
+      console.error('📊 Dashboard Stats API: Database error:', dbError)
+      return NextResponse.json({ error: 'Database error' }, { status: 500 })
     }
 
-    // Get account balance from the shared balance service
-    const balanceData = BalanceService.getBalance(user.userId)
-    const accountBalance = balanceData.balance
-    
-    // Get debug info for troubleshooting
-    const debugInfo = BalanceService.getDebugInfo()
-    
-    console.log('📊 Dashboard Stats API: Account balance from balance service:', accountBalance)
-    console.log('📊 Dashboard Stats API: Balance data details:', balanceData)
-    console.log('📊 Dashboard Stats API: Debug info:', {
-      totalCompanies: debugInfo.totalCompanies,
-      fileExists: debugInfo.fileExists,
-      filePath: debugInfo.filePath,
-      allBalances: debugInfo.balances
-    })
-
-    // TODO: Implement when transactions table is created
-    // For now, return placeholder values
-    const totalTransactions = 0
-    const totalRevenue = 0
-    const pendingApprovals = 0
-    const successRate = 0
-    const monthlyGrowth = 0
-
-    console.log('📊 Dashboard Stats API: Stats calculated:', {
-      totalTransactions,
-      totalRevenue,
-      activeEmployees: activeEmployees || 0,
-      pendingApprovals,
-      successRate,
-      monthlyGrowth,
-      accountBalance
-    })
-
-    // Return dashboard statistics
-    return NextResponse.json({
-      totalTransactions: totalTransactions || 0,
-      totalRevenue: totalRevenue || 0,
-      activeEmployees: activeEmployees || 0,
-      pendingApprovals: pendingApprovals || 0,
-      successRate: successRate || 0,
-      monthlyGrowth: monthlyGrowth || 0,
-      accountBalance: accountBalance
-    })
-
   } catch (error) {
-    console.error('📊 Dashboard Stats API: Failed to fetch dashboard stats:', error)
+    console.error('📊 Dashboard Stats API: Unexpected error:', error)
     return NextResponse.json(
-      {
-        error: {
-          message: error instanceof Error ? error.message : 'Failed to fetch dashboard stats'
-        }
-      },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }

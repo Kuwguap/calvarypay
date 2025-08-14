@@ -430,6 +430,104 @@ export class EmployeeBalanceService {
   }
 
   /**
+   * Add transaction to log for a specific user
+   */
+  static async addTransactionToLog(userId: string, transactionData: any): Promise<void> {
+    try {
+      const transactions = getCurrentTransactionLog()
+      
+      // Create transaction entry
+      const transaction = {
+        id: transactionData.id,
+        userId: userId,
+        amount: transactionData.amount,
+        type: transactionData.type,
+        reference: transactionData.reference,
+        description: transactionData.description,
+        timestamp: transactionData.timestamp,
+        status: 'completed',
+        lastUpdated: new Date().toISOString()
+      }
+      
+      transactions.push(transaction)
+      saveTransactionLog(transactions)
+      
+      console.log('📊 Transaction Log: Added transaction for user:', {
+        userId,
+        transactionId: transaction.id,
+        amount: transaction.amount,
+        type: transaction.type
+      })
+    } catch (error) {
+      console.error('📊 Transaction Log: Error adding transaction to log:', error)
+    }
+  }
+
+  /**
+   * Update employee balance directly
+   */
+  static updateEmployeeBalance(userId: string, newBalance: number): void {
+    try {
+      const balances = getCurrentEmployeeBalances()
+      
+      if (balances.has(userId)) {
+        const currentBalance = balances.get(userId)
+        const oldBalance = currentBalance.balance || 0
+        
+        // Update the balance
+        currentBalance.balance = newBalance
+        currentBalance.lastUpdated = new Date().toISOString()
+        
+        // Add to balance history if it exists
+        if (currentBalance.balanceHistory) {
+          currentBalance.balanceHistory.push({
+            previousBalance: oldBalance,
+            newBalance: newBalance,
+            changeAmount: newBalance - oldBalance,
+            timestamp: new Date().toISOString(),
+            changeType: newBalance > oldBalance ? 'credit' : 'debit'
+          })
+        }
+        
+        console.log('💰 Employee Balance Service: Updated balance for employee:', {
+          userId,
+          oldBalance,
+          newBalance,
+          changeAmount: newBalance - oldBalance
+        })
+      } else {
+        // Create new balance entry if it doesn't exist
+        balances.set(userId, {
+          balance: newBalance,
+          currency: 'GHS',
+          lastUpdated: new Date().toISOString(),
+          allocations: [],
+          transactions: [],
+          balanceHistory: [{
+            previousBalance: 0,
+            newBalance: newBalance,
+            changeAmount: newBalance,
+            timestamp: new Date().toISOString(),
+            changeType: 'credit'
+          }]
+        })
+        
+        console.log('💰 Employee Balance Service: Created new balance for employee:', {
+          userId,
+          balance: newBalance
+        })
+      }
+      
+      // Save to file
+      saveEmployeeBalances(balances)
+      
+    } catch (error) {
+      console.error('💰 Employee Balance Service: Error updating employee balance:', error)
+      throw error
+    }
+  }
+
+  /**
    * Get debug info
    */
   static getDebugInfo(): {

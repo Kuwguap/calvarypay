@@ -1,244 +1,173 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
-import { authService } from '@/lib/services/auth.service'
+import { supabaseService } from '@/lib/supabase'
+import { verifyPaymentAuth, verifyPaymentRole, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth/payment-auth'
 
 export async function GET(request: NextRequest) {
   try {
-    // Get authorization header
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: { message: 'Authorization token required' } },
-        { status: 401 }
-      )
+    console.log('📊 Employee Export API: Starting export generation...')
+
+    // Verify authentication
+    const authResult = await verifyPaymentAuth(request)
+    if (!authResult.success || !authResult.user) {
+      console.log('📊 Employee Export API: Authentication failed:', authResult.error)
+      return createUnauthorizedResponse(authResult.error || 'Authentication failed')
     }
 
-    const token = authHeader.substring(7)
-    
-    // Verify token and get user
-    const user = await authService.verifyToken(token)
-    if (!user) {
-      return NextResponse.json(
-        { error: { message: 'Invalid or expired token' } },
-        { status: 401 }
-      )
+    // Verify user has permission to access exports
+    if (!verifyPaymentRole(authResult.user, ['merchant', 'admin'])) {
+      console.log('📊 Employee Export API: Insufficient permissions for user:', authResult.user.role)
+      return createForbiddenResponse('Only merchants and admins can access employee exports')
     }
 
-    // Only allow employees to access this endpoint
-    if (user.role !== 'employee') {
-      return NextResponse.json(
-        { error: { message: 'Access denied. Employee role required.' } },
-        { status: 403 }
-      )
-    }
-
-    // Get query parameters
+    const { user } = authResult
     const { searchParams } = new URL(request.url)
-    const days = parseInt(searchParams.get('days') || '30')
-    const reportType = searchParams.get('type') || 'summary'
+    const employeeId = searchParams.get('employeeId')
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
     const format = searchParams.get('format') || 'csv'
 
-    // Calculate date range
-    const endDate = new Date()
-    const startDate = new Date()
-    startDate.setDate(endDate.getDate() - days)
-
-    // Fetch transactions for the user within the date range
-    const { data: transactions, error: transactionsError } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('user_id', user.userId)
-      .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString())
-      .order('created_at', { ascending: false })
-
-    if (transactionsError) {
-      console.error('Transactions fetch error:', transactionsError)
+    if (!employeeId) {
       return NextResponse.json(
-        { error: { message: 'Failed to fetch transactions' } },
+        { error: { message: 'Employee ID is required' } },
+        { status: 400 }
+      )
+    }
+
+    console.log('📊 Employee Export API: Generating export for employee:', employeeId, 'format:', format)
+
+    // Build query for employee_transfers
+    let query = supabaseService.client
+      .from('employee_transfers')
+      .select(`
+        id,
+        transfer_reference,
+        amount_minor,
+        currency,
+        status,
+        transfer_type,
+        reason,
+        description,
+        created_at,
+        processed_at,
+        transfer_fee_minor,
+        net_amount_minor,
+        sender_id,
+        recipient_id,
+        metadata
+      `)
+      .or(`sender_id.eq.${employeeId},recipient_id.eq.${employeeId}`)
+
+    // Add date filters if provided
+    if (startDate) {
+      query = query.gte('created_at', startDate)
+    }
+    if (endDate) {
+      query = query.lte('created_at', endDate)
+    }
+
+    // Execute query
+    const { data: transfers, error: transfersError } = await query.order('created_at', { ascending: false })
+
+    if (transfersError) {
+      console.error('📊 Employee Export API: Error fetching transfers:', transfersError)
+      return NextResponse.json(
+        { error: { message: 'Failed to fetch employee transfers' } },
         { status: 500 }
       )
     }
 
+    // Get employee details
+    const { data: employee, error: employeeError } = await supabaseService.client
+      .from('calvary_users')
+      .select('id, first_name, last_name, email, role, department')
+      .eq('id', employeeId)
+      .single()
+
+    if (employeeError || !employee) {
+      console.error('📊 Employee Export API: Error fetching employee details:', employeeError)
+      return NextResponse.json(
+        { error: { message: 'Employee not found' } },
+        { status: 404 }
+      )
+    }
+
+    // Format data for export
+    const exportData = transfers?.map(transfer => ({
+      'Transfer ID': transfer.id,
+      'Reference': transfer.transfer_reference,
+      'Amount': (transfer.amount_minor / 100).toFixed(2),
+      'Currency': transfer.currency,
+      'Status': transfer.status,
+      'Type': transfer.transfer_type,
+      'Reason': transfer.reason || '',
+      'Description': transfer.description || '',
+      'Created Date': new Date(transfer.created_at).toLocaleDateString(),
+      'Processed Date': transfer.processed_at ? new Date(transfer.processed_at).toLocaleDateString() : '',
+      'Fee': transfer.transfer_fee_minor ? (transfer.transfer_fee_minor / 100).toFixed(2) : '0.00',
+      'Net Amount': transfer.net_amount_minor ? (transfer.net_amount_minor / 100).toFixed(2) : '0.00',
+      'Direction': transfer.recipient_id === employeeId ? 'Incoming' : 'Outgoing'
+    })) || []
+
     if (format === 'csv') {
-      // Generate CSV content
-      const csvHeaders = [
-        'Reference',
-        'Date',
-        'Amount',
-        'Currency',
-        'Status',
-        'Description',
-        'Category',
-        'Channel'
-      ]
-
-      const csvRows = transactions.map(transaction => [
-        transaction.reference || '',
-        new Date(transaction.created_at).toLocaleDateString(),
-        transaction.amount?.toString() || '0',
-        transaction.currency || 'NGN',
-        transaction.status || '',
-        transaction.description || '',
-        transaction.metadata?.category || '',
-        transaction.channel || ''
-      ])
-
-      // Create CSV content
+      // Generate CSV
+      const headers = Object.keys(exportData[0] || {})
       const csvContent = [
-        csvHeaders.join(','),
-        ...csvRows.map(row => row.map(field => `"${field}"`).join(','))
+        headers.join(','),
+        ...exportData.map(row => 
+          headers.map(header => {
+            const value = row[header]
+            // Escape commas and quotes in CSV
+            if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+              return `"${value.replace(/"/g, '""')}"`
+            }
+            return value
+          }).join(',')
+        )
       ].join('\n')
 
-      // Log the export
-      await supabase
-        .from('audit_logs')
-        .insert({
-          user_id: user.userId,
-          action: 'report_exported',
-          resource_type: 'report',
-          resource_id: `employee_report_${reportType}`,
-          details: {
-            format: 'csv',
-            reportType,
-            dateRange: days,
-            transactionCount: transactions.length
-          }
-        })
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${employee.first_name}_${employee.last_name}_transfers_${new Date().toISOString().split('T')[0]}.csv`
+      a.click()
+      window.URL.revokeObjectURL(url)
 
-      return new NextResponse(csvContent, {
-        headers: {
-          'Content-Type': 'text/csv',
-          'Content-Disposition': `attachment; filename="employee-report-${days}days.csv"`
-        }
+      return NextResponse.json({
+        success: true,
+        message: 'CSV export completed',
+        downloadUrl: url
+      })
+    } else {
+      // Return JSON format
+      return NextResponse.json({
+        employee: {
+          id: employee.id,
+          name: `${employee.first_name} ${employee.last_name}`,
+          email: employee.email,
+          role: employee.role,
+          department: employee.department
+        },
+        export: {
+          format: 'json',
+          totalTransfers: exportData.length,
+          period: {
+            startDate: startDate || 'all',
+            endDate: endDate || 'all'
+          }
+        },
+        data: exportData
       })
     }
-
-    if (format === 'pdf') {
-      // For PDF, we'll create a simple HTML report that can be converted to PDF
-      // In a production environment, you might use a library like puppeteer or jsPDF
-      
-      // Calculate summary statistics
-      const summary = {
-        totalTransactions: transactions.length,
-        totalAmount: transactions.reduce((sum, t) => sum + (t.amount || 0), 0),
-        successfulTransactions: transactions.filter(t => ['completed', 'success'].includes(t.status)).length,
-        failedTransactions: transactions.filter(t => ['failed', 'error'].includes(t.status)).length,
-        pendingTransactions: transactions.filter(t => t.status === 'pending').length
-      }
-
-      // Generate HTML content for PDF
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Employee Transaction Report</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            .header { text-align: center; margin-bottom: 30px; }
-            .summary { margin-bottom: 30px; }
-            .summary-item { display: inline-block; margin: 10px 20px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-            th { background-color: #f2f2f2; }
-            .status-success { color: green; }
-            .status-failed { color: red; }
-            .status-pending { color: orange; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>Employee Transaction Report</h1>
-            <p>Report Period: ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}</p>
-            <p>Employee: ${user.firstName} ${user.lastName} (${user.email})</p>
-          </div>
-          
-          <div class="summary">
-            <h2>Summary</h2>
-            <div class="summary-item">
-              <strong>Total Transactions:</strong> ${summary.totalTransactions}
-            </div>
-            <div class="summary-item">
-              <strong>Total Amount:</strong> ₦${summary.totalAmount.toLocaleString()}
-            </div>
-            <div class="summary-item">
-              <strong>Successful:</strong> ${summary.successfulTransactions}
-            </div>
-            <div class="summary-item">
-              <strong>Failed:</strong> ${summary.failedTransactions}
-            </div>
-            <div class="summary-item">
-              <strong>Pending:</strong> ${summary.pendingTransactions}
-            </div>
-          </div>
-          
-          <h2>Transaction Details</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Reference</th>
-                <th>Date</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th>Description</th>
-                <th>Category</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${transactions.map(transaction => `
-                <tr>
-                  <td>${transaction.reference || ''}</td>
-                  <td>${new Date(transaction.created_at).toLocaleDateString()}</td>
-                  <td>${transaction.currency || 'NGN'} ${(transaction.amount || 0).toLocaleString()}</td>
-                  <td class="status-${transaction.status}">${transaction.status || ''}</td>
-                  <td>${transaction.description || ''}</td>
-                  <td>${transaction.metadata?.category || ''}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-          
-          <div style="margin-top: 30px; text-align: center; color: #666;">
-            <p>Generated on ${new Date().toLocaleString()}</p>
-            <p>CalvaryPay Employee Report System</p>
-          </div>
-        </body>
-        </html>
-      `
-
-      // Log the export
-      await supabase
-        .from('audit_logs')
-        .insert({
-          user_id: user.userId,
-          action: 'report_exported',
-          resource_type: 'report',
-          resource_id: `employee_report_${reportType}`,
-          details: {
-            format: 'pdf',
-            reportType,
-            dateRange: days,
-            transactionCount: transactions.length
-          }
-        })
-
-      return new NextResponse(htmlContent, {
-        headers: {
-          'Content-Type': 'text/html',
-          'Content-Disposition': `attachment; filename="employee-report-${days}days.html"`
-        }
-      })
-    }
-
-    return NextResponse.json(
-      { error: { message: 'Unsupported format. Use csv or pdf.' } },
-      { status: 400 }
-    )
 
   } catch (error) {
-    console.error('Employee report export error:', error)
+    console.error('📊 Employee Export API: Failed to generate export:', error)
     return NextResponse.json(
-      { error: { message: 'Internal server error' } },
+      {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to generate employee export'
+        }
+      },
       { status: 500 }
     )
   }

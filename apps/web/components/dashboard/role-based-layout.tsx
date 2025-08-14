@@ -8,7 +8,7 @@
 import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useAtom } from 'jotai'
+
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -31,7 +31,7 @@ import {
   Activity,
   Send
 } from 'lucide-react'
-import { userAtom } from '@/lib/store/auth.store'
+import { useAuth } from '@/lib/hooks/use-auth'
 import { usePermissions, type UserRole } from '@/lib/auth/route-protection'
 import { authService } from '@/lib/services/auth.service'
 
@@ -95,7 +95,7 @@ interface RoleBasedLayoutProps {
 
 export function RoleBasedLayout({ children }: RoleBasedLayoutProps) {
   const pathname = usePathname()
-  const [user] = useAtom(userAtom)
+  const { user } = useAuth()
   const { role } = usePermissions()
 
   if (!user || !role) {

@@ -8,7 +8,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { useState, useEffect } from "react"
 import dynamic from "next/dynamic"
-import { redisService, cacheUtils, CACHE_TTL } from "@/lib/services/redis.service"
 
 // Dynamically import devtools to avoid SSR issues
 const ReactQueryDevtools = dynamic(
@@ -54,6 +53,12 @@ export function RedisQueryProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     const initializeCache = async () => {
       try {
+        // Only initialize on client side
+        if (typeof window === 'undefined') return
+
+        // Dynamically import Redis service to avoid SSR issues
+        const { redisService, cacheUtils, CACHE_TTL } = await import('@/lib/services/redis.service')
+        
         // Only initialize if Redis is available
         if (!redisService.isAvailable()) {
           console.log('🟡 Redis not available, using localStorage fallback')
@@ -101,121 +106,34 @@ export function RedisQueryProvider({ children }: { children: React.ReactNode }) 
   )
 }
 
-// Enhanced hooks with Redis caching
-export const useRedisQuery = {
-  // User-specific queries with automatic cache invalidation
-  user: <T>(
-    userId: string,
-    resource: string,
-    queryFn: () => Promise<T>,
-    options: {
-      ttl?: number
-      tags?: string[]
-      enabled?: boolean
-    } = {}
-  ) => {
-    const { ttl = CACHE_TTL.USER_SESSION, tags = [], enabled = true } = options
-    const key = cacheUtils.userKey(userId, resource)
-    
-    return {
-      queryKey: [key],
-      queryFn,
-      enabled: enabled && !!userId,
-      staleTime: ttl * 1000,
-      gcTime: ttl * 2 * 1000,
-      meta: { cacheKey: key, tags: [cacheUtils.tags.user(userId), ...tags] }
-    }
-  },
-
-  // Company-specific queries
-  company: <T>(
-    companyId: string,
-    resource: string,
-    queryFn: () => Promise<T>,
-    options: {
-      ttl?: number
-      tags?: string[]
-      enabled?: boolean
-    } = {}
-  ) => {
-    const { ttl = CACHE_TTL.COMPANY_DATA, tags = [], enabled = true } = options
-    const key = cacheUtils.companyKey(companyId, resource)
-    
-    return {
-      queryKey: [key],
-      queryFn,
-      enabled: enabled && !!companyId,
-      staleTime: ttl * 1000,
-      gcTime: ttl * 2 * 1000,
-      meta: { cacheKey: key, tags: [cacheUtils.tags.company(companyId), ...tags] }
-    }
-  },
-
-  // Global queries
-  global: <T>(
-    resource: string,
-    queryFn: () => Promise<T>,
-    options: {
-      ttl?: number
-      tags?: string[]
-      enabled?: boolean
-    } = {}
-  ) => {
-    const { ttl = CACHE_TTL.STATIC_CONTENT, tags = [], enabled = true } = options
-    const key = cacheUtils.globalKey(resource)
-    
-    return {
-      queryKey: [key],
-      queryFn,
-      enabled,
-      staleTime: ttl * 1000,
-      gcTime: ttl * 2 * 1000,
-      meta: { cacheKey: key, tags: [cacheUtils.tags.global(), ...tags] }
-    }
-  }
-}
-
-// Cache invalidation utilities
+// Export cache invalidation utilities
 export const cacheInvalidation = {
-  // Invalidate user-specific caches
-  user: async (userId: string) => {
-    await redisService.invalidateByTags([cacheUtils.tags.user(userId)])
-  },
-
-  // Invalidate company-specific caches
-  company: async (companyId: string) => {
-    await redisService.invalidateByTags([cacheUtils.tags.company(companyId)])
-  },
-
-  // Invalidate global caches
-  global: async () => {
-    await redisService.invalidateByTags([cacheUtils.tags.global()])
-  },
-
-  // Invalidate specific resource types
-  transactions: async () => {
-    await redisService.invalidateByTags([cacheUtils.tags.transactions()])
-  },
-
-  employees: async () => {
-    await redisService.invalidateByTags([cacheUtils.tags.employees()])
-  },
-
-  notifications: async () => {
-    await redisService.invalidateByTags([cacheUtils.tags.notifications()])
-  },
-
-  // Invalidate multiple resources
-  multiple: async (resources: string[]) => {
-    const tags = resources.map(resource => {
-      switch (resource) {
-        case 'transactions': return cacheUtils.tags.transactions()
-        case 'employees': return cacheUtils.tags.employees()
-        case 'notifications': return cacheUtils.tags.notifications()
-        case 'global': return cacheUtils.tags.global()
-        default: return resource
-      }
-    })
-    await redisService.invalidateByTags(tags)
-  }
+  user: (userId: string) => ({
+    queryKey: ['user', userId],
+    exact: true
+  }),
+  company: (companyId: string) => ({
+    queryKey: ['company', companyId],
+    exact: true
+  }),
+  transactions: (companyId: string) => ({
+    queryKey: ['transactions', companyId],
+    exact: true
+  }),
+  balances: (userId: string) => ({
+    queryKey: ['balances', userId],
+    exact: true
+  }),
+  notifications: (userId: string) => ({
+    queryKey: ['notifications', userId],
+    exact: true
+  }),
+  analytics: (companyId: string) => ({
+    queryKey: ['analytics', companyId],
+    exact: true
+  }),
+  global: () => ({
+    queryKey: ['global'],
+    exact: true
+  })
 } 

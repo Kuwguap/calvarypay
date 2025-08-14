@@ -1,324 +1,508 @@
 "use client"
 
-import { useState } from "react"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useState, useEffect } from "react"
+import { useGlobalQuery } from "@/lib/hooks/use-redis-query"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import {
-  Activity,
-  Search,
-  Filter,
-  Download,
-  ArrowLeft,
-  RefreshCw,
-  AlertCircle,
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { 
+  Download, 
+  Filter, 
+  Search, 
+  Calendar, 
+  User, 
+  Building2, 
+  ArrowUpRight, 
+  ArrowDownLeft,
+  Clock,
   CheckCircle,
   XCircle,
-  Clock,
-  Eye,
-  MoreHorizontal,
-  Calendar,
-  DollarSign,
-  User,
-  FileText
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  BarChart3,
+  RefreshCw,
+  Users,
+  TrendingUp
 } from "lucide-react"
-import { MerchantLayout } from "@/components/dashboard/role-based-layout"
 import { withRouteProtection } from "@/lib/auth/route-protection"
+import { formatCurrency } from "@/lib/utils"
 import { useAuth } from "@/lib/hooks/use-auth"
-import { formatCurrency, formatDate } from "@/lib/utils"
-import Link from "next/link"
+import { MerchantLayout } from "@/components/dashboard/role-based-layout"
 
 // Types
 interface Transaction {
   id: string
   reference: string
-  employee: string
-  employeeEmail: string
+  type: string
   amount: number
   currency: string
   status: string
   description: string
-  category: string
-  channel: string
   createdAt: string
-  metadata?: any
+  processedAt?: string
+  category: string
+  sender: string
+  senderEmail: string
+  senderRole: string
+  recipient: string
+  recipientEmail: string
+  recipientRole: string
+  transferType: string
+  fee: number
+  netAmount: number
+  metadata: any
+  department?: string
 }
 
-function TransactionsPage() {
+interface TransactionStats {
+  totalTransactions: number
+  totalAmount: number
+  totalFees: number
+  completedTransactions: number
+  pendingTransactions: number
+  failedTransactions: number
+  byDepartment: Record<string, { count: number; amount: number }>
+}
+
+interface Department {
+  id: string
+  name: string
+  employeeCount: number
+  totalBudget: number
+}
+
+function CompanyTransactionsPage() {
   const { user } = useAuth()
-  const queryClient = useQueryClient()
   
   // State
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
-  const [categoryFilter, setCategoryFilter] = useState("all")
+  const [typeFilter, setTypeFilter] = useState("all")
+  const [departmentFilter, setDepartmentFilter] = useState("all")
   const [dateRange, setDateRange] = useState("30")
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
-  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false)
+  const [pageSize, setPageSize] = useState(25)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [exportFormat, setExportFormat] = useState<"csv" | "pdf">("csv")
 
-  // Fetch transactions
+  // Fetch transactions data
   const {
     data: transactionsData,
     isLoading: transactionsLoading,
     error: transactionsError,
     refetch: refetchTransactions
-  } = useQuery({
-    queryKey: ['merchant-transactions', searchTerm, statusFilter, categoryFilter, dateRange],
-    queryFn: async () => {
-      const params = new URLSearchParams()
-      if (searchTerm) params.append('search', searchTerm)
-      if (statusFilter !== 'all') params.append('status', statusFilter)
-      if (categoryFilter !== 'all') params.append('category', categoryFilter)
-      params.append('days', dateRange)
-      params.append('limit', '100')
-
-      const response = await fetch(`/api/merchant/transactions?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${user?.accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      })
-
+  } = useGlobalQuery(
+    `merchant-transactions-${dateRange}`,
+    async () => {
+      const response = await fetch(`/api/merchant/transactions/recent?limit=1000&days=${dateRange}`)
       if (!response.ok) {
         throw new Error('Failed to fetch transactions')
       }
-
       return response.json()
     },
-    enabled: !!user?.accessToken,
-    staleTime: 60000, // 1 minute
-  })
+    {
+      ttl: 5 * 60, // 5 minutes
+      tags: ['merchant-transactions']
+    }
+  )
 
-  // Approve/Reject transaction mutation
-  const updateTransactionMutation = useMutation({
-    mutationFn: async ({ transactionId, action }: { transactionId: string; action: 'approve' | 'reject' }) => {
-      const response = await fetch(`/api/merchant/transactions/${transactionId}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${user?.accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ action })
-      })
-
+  // Fetch dashboard stats
+  const {
+    data: statsData,
+    isLoading: statsLoading
+  } = useGlobalQuery(
+    'merchant-dashboard-stats',
+    async () => {
+      const response = await fetch('/api/merchant/dashboard/stats')
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error?.message || 'Failed to update transaction')
+        throw new Error('Failed to fetch dashboard stats')
       }
-
       return response.json()
     },
-    onSuccess: () => {
-      // Refresh transactions list
-      queryClient.invalidateQueries({ queryKey: ['merchant-transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['merchant-dashboard-stats'] })
-    },
-    onError: (error: unknown) => {
-      console.error('Transaction update failed:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update transaction'
-      console.error('Error message:', errorMessage)
+    {
+      ttl: 5 * 60, // 5 minutes
+      tags: ['merchant-stats']
     }
+  )
+
+  // Fetch employee balances for transaction context
+  const {
+    data: employeeBalancesData,
+    isLoading: employeeBalancesLoading
+  } = useGlobalQuery(
+    'merchant-employee-balances',
+    async () => {
+      const response = await fetch('/api/merchant/employees?limit=100')
+      if (!response.ok) {
+        throw new Error('Failed to fetch employee balances')
+      }
+      return response.json()
+    },
+    {
+      ttl: 10 * 60, // 10 minutes
+      tags: ['merchant-employees']
+    }
+  )
+
+  // Mock departments data (replace with real API call)
+  const departments: Department[] = [
+    { id: 'eng', name: 'Engineering', employeeCount: 5, totalBudget: 5000 },
+    { id: 'mkt', name: 'Marketing', employeeCount: 3, totalBudget: 3000 },
+    { id: 'sales', name: 'Sales', employeeCount: 4, totalBudget: 4000 },
+    { id: 'hr', name: 'Human Resources', employeeCount: 2, totalBudget: 2000 },
+    { id: 'finance', name: 'Finance', employeeCount: 3, totalBudget: 3500 }
+  ]
+
+  // Process and filter transactions
+  const processedTransactions = transactionsData?.transactions || []
+  const filteredTransactions = processedTransactions.filter((transaction: Transaction) => {
+    const matchesSearch = !searchTerm || 
+      transaction.reference.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      transaction.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      transaction.sender.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      transaction.recipient.toLowerCase().includes(searchTerm.toLowerCase())
+    
+    const matchesStatus = statusFilter === "all" || transaction.status === statusFilter
+    const matchesType = typeFilter === "all" || transaction.type === typeFilter
+    const matchesDepartment = departmentFilter === "all" || transaction.department === departmentFilter
+    
+    return matchesSearch && matchesStatus && matchesType && matchesDepartment
   })
 
-  // Export transactions
-  const handleExportTransactions = async (format: 'csv' | 'pdf') => {
-    try {
-      const params = new URLSearchParams()
-      if (searchTerm) params.append('search', searchTerm)
-      if (statusFilter !== 'all') params.append('status', statusFilter)
-      if (categoryFilter !== 'all') params.append('category', categoryFilter)
-      params.append('days', dateRange)
-      params.append('format', format)
+  // Pagination
+  const totalPages = Math.ceil(filteredTransactions.length / pageSize)
+  const startIndex = (currentPage - 1) * pageSize
+  const endIndex = startIndex + pageSize
+  const paginatedTransactions = filteredTransactions.slice(startIndex, endIndex)
 
-      const response = await fetch(`/api/merchant/transactions/export?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${user?.accessToken}`,
-        }
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to export transactions')
+  // Calculate transaction stats with department breakdown
+  const transactionStats: TransactionStats = {
+    totalTransactions: filteredTransactions.length,
+    totalAmount: filteredTransactions.reduce((sum, t) => sum + (t.amount || 0), 0),
+    totalFees: filteredTransactions.reduce((sum, t) => sum + (t.fee || 0), 0),
+    completedTransactions: filteredTransactions.filter(t => t.status === 'completed').length,
+    pendingTransactions: filteredTransactions.filter(t => t.status === 'pending').length,
+    failedTransactions: filteredTransactions.filter(t => t.status === 'failed').length,
+    byDepartment: filteredTransactions.reduce((acc, t) => {
+      const dept = t.department || 'Unknown'
+      if (!acc[dept]) {
+        acc[dept] = { count: 0, amount: 0 }
       }
+      acc[dept].count++
+      acc[dept].amount += t.amount || 0
+      return acc
+    }, {} as Record<string, { count: number; amount: number }>)
+  }
 
-      // Download the file
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `merchant-transactions-${dateRange}days.${format}`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (error) {
-      console.error('Export failed:', error)
+  // Export functions
+  const exportToCSV = () => {
+    const headers = [
+      'Reference', 'Type', 'Amount', 'Currency', 'Status', 'Description', 
+      'Department', 'Sender', 'Recipient', 'Fee', 'Net Amount', 'Created At', 'Processed At'
+    ]
+    
+    const csvContent = [
+      headers.join(','),
+      ...paginatedTransactions.map((t: Transaction) => [
+        t.reference,
+        t.type,
+        t.amount,
+        t.currency,
+        t.status,
+        `"${t.description}"`,
+        t.department || 'Unknown',
+        t.sender,
+        t.recipient,
+        t.fee,
+        t.netAmount,
+        t.createdAt,
+        t.processedAt || ''
+      ].join(','))
+    ].join('\n')
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `company-transactions-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const exportToPDF = () => {
+    const printWindow = window.open('', '_blank')
+    if (printWindow) {
+      printWindow.document.write(`
+        <html>
+          <head><title>Company Transactions Report</title></head>
+          <body>
+            <h1>Company Transactions Report</h1>
+            <p>Generated: ${new Date().toLocaleString()}</p>
+            <table border="1" style="width:100%; border-collapse: collapse;">
+              <thead>
+                <tr>
+                  <th>Reference</th><th>Type</th><th>Amount</th><th>Status</th><th>Description</th><th>Department</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${paginatedTransactions.map((t: Transaction) => `
+                  <tr>
+                    <td>${t.reference}</td>
+                    <td>${t.type}</td>
+                    <td>${formatCurrency(t.amount, t.currency)}</td>
+                    <td>${t.status}</td>
+                    <td>${t.description}</td>
+                    <td>${t.department || 'Unknown'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </body>
+        </html>
+      `)
+      printWindow.document.close()
+      printWindow.print()
     }
   }
 
-  // Handle transaction action
-  const handleTransactionAction = (transactionId: string, action: 'approve' | 'reject') => {
-    updateTransactionMutation.mutate({ transactionId, action })
-  }
-
-  // View transaction details
-  const viewTransactionDetails = (transaction: Transaction) => {
-    setSelectedTransaction(transaction)
-    setIsDetailsDialogOpen(true)
-  }
-
-  // Get status color
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed':
-      case 'success':
-      case 'approved':
-        return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-      case 'pending':
-        return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
-      case 'failed':
-      case 'error':
-      case 'rejected':
-        return 'bg-red-500/20 text-red-400 border-red-500/30'
-      default:
-        return 'bg-slate-500/20 text-slate-400 border-slate-500/30'
+  const handleExport = () => {
+    if (exportFormat === 'csv') {
+      exportToCSV()
+    } else {
+      exportToPDF()
     }
   }
 
-  const transactions = transactionsData?.transactions || []
+  // Loading state
+  if (transactionsLoading || statsLoading || employeeBalancesLoading) {
+    return (
+      <MerchantLayout>
+        <div className="container mx-auto p-6">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading transactions...</p>
+            </div>
+          </div>
+        </div>
+      </MerchantLayout>
+    )
+  }
+
+  // Error state
+  if (transactionsError) {
+    return (
+      <MerchantLayout>
+        <div className="container mx-auto p-6">
+          <Card className="border-destructive">
+            <CardHeader>
+              <CardTitle className="text-destructive flex items-center gap-2">
+                <AlertCircle className="h-5 w-5" />
+                Error Loading Transactions
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-muted-foreground mb-4">
+                {transactionsError.message || 'An error occurred while loading transactions'}
+              </p>
+              <Button onClick={() => refetchTransactions()} variant="outline">
+                Try Again
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </MerchantLayout>
+    )
+  }
 
   return (
     <MerchantLayout>
-      <div className="space-y-8">
+      <div className="container mx-auto p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Link href="/dashboard/company">
-              <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Dashboard
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-3xl font-bold text-white mb-2">Transaction Management</h1>
-              <p className="text-slate-400">Monitor and manage all company transactions</p>
-            </div>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Company Transactions</h1>
+            <p className="text-muted-foreground">
+              Monitor and analyze all financial transactions within your organization
+            </p>
           </div>
-          <div className="flex items-center space-x-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refetchTransactions()}
-              disabled={transactionsLoading}
-              className="border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent"
-            >
-              <RefreshCw className={`w-4 h-4 mr-2 ${transactionsLoading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleExportTransactions('csv')}
-              className="border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Export CSV
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleExportTransactions('pdf')}
-              className="border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Export PDF
+          <div className="flex items-center gap-2">
+            <Select value={exportFormat} onValueChange={(value: "csv" | "pdf") => setExportFormat(value)}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="csv">CSV Export</SelectItem>
+                <SelectItem value="pdf">PDF Export</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={handleExport} disabled={filteredTransactions.length === 0}>
+              <Download className="h-4 w-4 mr-2" />
+              Export {exportFormat.toUpperCase()}
             </Button>
           </div>
         </div>
 
+        {/* Department Overview Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          {departments.map((dept) => {
+            const deptStats = transactionStats.byDepartment[dept.name] || { count: 0, amount: 0 }
+            return (
+              <Card key={dept.id} className="hover:shadow-lg transition-shadow">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    {dept.name}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="text-2xl font-bold">{deptStats.count}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {formatCurrency(deptStats.amount, 'GHS')}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {dept.employeeCount} employees
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{transactionStats.totalTransactions}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Total Amount</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(transactionStats.totalAmount, 'GHS')}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Total Fees</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(transactionStats.totalFees, 'GHS')}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Completed</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{transactionStats.completedTransactions}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Pending</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-yellow-600">{transactionStats.pendingTransactions}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Failed</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-600">{transactionStats.failedTransactions}</div>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Filters */}
-        <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-white text-lg font-semibold flex items-center">
-              <Filter className="w-5 h-5 mr-2 text-blue-400" />
-              Filters & Search
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="h-5 w-5" />
+              Filters
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="search" className="text-slate-300">Search</Label>
+                <Label htmlFor="search">Search</Label>
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="search"
                     placeholder="Search transactions..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 bg-slate-800 border-slate-700 text-white focus:border-blue-500"
+                    className="pl-10"
                   />
                 </div>
               </div>
-              
               <div className="space-y-2">
-                <Label htmlFor="status" className="text-slate-300">Status</Label>
+                <Label htmlFor="status">Status</Label>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="bg-slate-800 border-slate-700 text-white">
+                  <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-800 border-slate-700">
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
+                  <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="failed">Failed</SelectItem>
-                    <SelectItem value="approved">Approved</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-
               <div className="space-y-2">
-                <Label htmlFor="category" className="text-slate-300">Category</Label>
-                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                  <SelectTrigger className="bg-slate-800 border-slate-700 text-white">
+                <Label htmlFor="type">Type</Label>
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                  <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-800 border-slate-700">
-                    <SelectItem value="all">All Categories</SelectItem>
-                    <SelectItem value="fuel">Fuel</SelectItem>
-                    <SelectItem value="maintenance">Maintenance</SelectItem>
-                    <SelectItem value="toll">Toll Fees</SelectItem>
-                    <SelectItem value="parking">Parking</SelectItem>
-                    <SelectItem value="food">Food & Meals</SelectItem>
-                    <SelectItem value="accommodation">Accommodation</SelectItem>
-                    <SelectItem value="supplies">Office Supplies</SelectItem>
-                    <SelectItem value="transport">Transportation</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="deposit">Deposit</SelectItem>
+                    <SelectItem value="withdrawal">Withdrawal</SelectItem>
+                    <SelectItem value="transfer">Transfer</SelectItem>
+                    <SelectItem value="allocation">Allocation</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-
               <div className="space-y-2">
-                <Label htmlFor="dateRange" className="text-slate-300">Date Range</Label>
+                <Label htmlFor="department">Department</Label>
+                <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Departments</SelectItem>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.name}>
+                        {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="dateRange">Date Range</Label>
                 <Select value={dateRange} onValueChange={setDateRange}>
-                  <SelectTrigger className="bg-slate-800 border-slate-700 text-white">
+                  <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-800 border-slate-700">
+                  <SelectContent>
                     <SelectItem value="7">Last 7 days</SelectItem>
                     <SelectItem value="30">Last 30 days</SelectItem>
                     <SelectItem value="90">Last 90 days</SelectItem>
@@ -330,247 +514,163 @@ function TransactionsPage() {
           </CardContent>
         </Card>
 
-        {/* Error State */}
-        {transactionsError && (
-          <Alert className="bg-red-500/20 border-red-500/30">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription className="text-red-400">
-              Failed to load transactions. Please try again.
-            </AlertDescription>
-          </Alert>
-        )}
-
         {/* Transactions Table */}
-        <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
+        <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-white text-xl font-semibold flex items-center">
-                <Activity className="w-5 h-5 mr-2 text-blue-400" />
-                Company Transactions
-                {!transactionsLoading && (
-                  <Badge className="ml-3 bg-blue-500/20 text-blue-400 border-blue-500/30">
-                    {transactions.length} transactions
-                  </Badge>
-                )}
-              </CardTitle>
-            </div>
-            <CardDescription className="text-slate-400">
-              All transactions from your employees
-            </CardDescription>
+            <CardTitle className="flex items-center justify-between">
+              <span>Recent Transactions</span>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span>Showing {startIndex + 1}-{Math.min(endIndex, filteredTransactions.length)} of {filteredTransactions.length}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => refetchTransactions()}
+                  disabled={transactionsLoading}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            {transactionsLoading ? (
-              <div className="space-y-4">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <Skeleton className="w-10 h-10 rounded-full bg-slate-700" />
-                      <div className="space-y-2">
-                        <Skeleton className="h-4 w-32 bg-slate-700" />
-                        <Skeleton className="h-3 w-24 bg-slate-700" />
-                      </div>
-                    </div>
-                    <Skeleton className="h-6 w-20 bg-slate-700" />
-                  </div>
-                ))}
-              </div>
-            ) : transactions.length > 0 ? (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-slate-700">
-                      <TableHead className="text-slate-300">Reference</TableHead>
-                      <TableHead className="text-slate-300">Employee</TableHead>
-                      <TableHead className="text-slate-300">Amount</TableHead>
-                      <TableHead className="text-slate-300">Category</TableHead>
-                      <TableHead className="text-slate-300">Status</TableHead>
-                      <TableHead className="text-slate-300">Date</TableHead>
-                      <TableHead className="text-slate-300">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {transactions.map((transaction) => (
-                      <TableRow key={transaction.id} className="border-slate-700">
-                        <TableCell className="text-white font-mono text-sm">
-                          {transaction.reference}
-                        </TableCell>
-                        <TableCell>
-                          <div>
-                            <p className="text-white font-medium">{transaction.employee}</p>
-                            <p className="text-slate-400 text-sm">{transaction.employeeEmail}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-white font-semibold">
-                          {formatCurrency(transaction.amount, transaction.currency)}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="border-slate-600 text-slate-300 capitalize">
-                            {transaction.category}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getStatusColor(transaction.status)}>
-                            {transaction.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-slate-400">
-                          {formatDate(transaction.createdAt)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center space-x-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => viewTransactionDetails(transaction)}
-                              className="text-blue-400 hover:text-blue-300 hover:bg-blue-500/20"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            {transaction.status === 'pending' && (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleTransactionAction(transaction.id, 'approve')}
-                                  disabled={updateTransactionMutation.isPending}
-                                  className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20"
-                                >
-                                  <CheckCircle className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleTransactionAction(transaction.id, 'reject')}
-                                  disabled={updateTransactionMutation.isPending}
-                                  className="text-red-400 hover:text-red-300 hover:bg-red-500/20"
-                                >
-                                  <XCircle className="w-4 h-4" />
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+            {filteredTransactions.length === 0 ? (
+              <div className="text-center py-12">
+                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">No transactions found</p>
+                {searchTerm || statusFilter !== "all" || typeFilter !== "all" || departmentFilter !== "all" ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSearchTerm("")
+                      setStatusFilter("all")
+                      setTypeFilter("all")
+                      setDepartmentFilter("all")
+                    }}
+                    className="mt-2"
+                  >
+                    Clear Filters
+                  </Button>
+                ) : null}
               </div>
             ) : (
-              <div className="text-center py-12">
-                <Activity className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-white mb-2">No Transactions Found</h3>
-                <p className="text-slate-400 mb-6">
-                  No transactions match your current filters. Try adjusting your search criteria.
-                </p>
-                <Button
-                  onClick={() => {
-                    setSearchTerm("")
-                    setStatusFilter("all")
-                    setCategoryFilter("all")
-                    setDateRange("30")
-                  }}
-                  variant="outline"
-                  className="border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent"
-                >
-                  Clear Filters
-                </Button>
+              <div className="space-y-4">
+                {paginatedTransactions.map((transaction: Transaction) => (
+                  <div key={transaction.id} className="border rounded-lg p-4 space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={transaction.status === 'completed' ? 'default' : transaction.status === 'pending' ? 'secondary' : 'destructive'}>
+                            {transaction.status}
+                          </Badge>
+                          <span className="font-mono text-sm text-muted-foreground">
+                            {transaction.reference}
+                          </span>
+                          {transaction.department && (
+                            <Badge variant="outline" className="text-xs">
+                              {transaction.department}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="font-medium">{transaction.description}</p>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold">
+                          {formatCurrency(transaction.amount, transaction.currency)}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {transaction.fee > 0 && `Fee: ${formatCurrency(transaction.fee, transaction.currency)}`}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <ArrowUpRight className="h-4 w-4 text-green-600" />
+                          <span className="font-medium">From:</span>
+                          <span>{transaction.sender}</span>
+                          <Badge variant="outline" className="text-xs">
+                            {transaction.senderRole}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <ArrowDownLeft className="h-4 w-4 text-blue-600" />
+                          <span className="font-medium">To:</span>
+                          <span>{transaction.recipient}</span>
+                          <Badge variant="outline" className="text-xs">
+                            {transaction.recipientRole}
+                          </Badge>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-medium">Created:</span>
+                          <span>{new Date(transaction.createdAt).toLocaleDateString()}</span>
+                        </div>
+                        {transaction.processedAt && (
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-muted-foreground" />
+                            <span className="font-medium">Processed:</span>
+                            <span>{new Date(transaction.processedAt).toLocaleDateString()}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {transaction.metadata && Object.keys(transaction.metadata).length > 0 && (
+                      <div className="pt-3 border-t">
+                        <details className="text-sm">
+                          <summary className="cursor-pointer font-medium text-muted-foreground">
+                            View Details
+                          </summary>
+                          <div className="mt-2 p-3 bg-muted rounded-md">
+                            <pre className="text-xs overflow-x-auto">
+                              {JSON.stringify(transaction.metadata, null, 2)}
+                            </pre>
+                          </div>
+                        </details>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Transaction Details Dialog */}
-        <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
-          <DialogContent className="bg-slate-900 border-slate-800 text-white max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="text-white">Transaction Details</DialogTitle>
-              <DialogDescription className="text-slate-400">
-                Complete information about this transaction
-              </DialogDescription>
-            </DialogHeader>
-            {selectedTransaction && (
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-slate-400 text-sm">Reference</label>
-                      <p className="text-white font-mono">{selectedTransaction.reference}</p>
-                    </div>
-                    <div>
-                      <label className="text-slate-400 text-sm">Employee</label>
-                      <p className="text-white">{selectedTransaction.employee}</p>
-                      <p className="text-slate-400 text-sm">{selectedTransaction.employeeEmail}</p>
-                    </div>
-                    <div>
-                      <label className="text-slate-400 text-sm">Amount</label>
-                      <p className="text-white font-semibold text-lg">
-                        {formatCurrency(selectedTransaction.amount, selectedTransaction.currency)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-slate-400 text-sm">Status</label>
-                      <div className="mt-1">
-                        <Badge className={getStatusColor(selectedTransaction.status)}>
-                          {selectedTransaction.status}
-                        </Badge>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-slate-400 text-sm">Category</label>
-                      <p className="text-white capitalize">{selectedTransaction.category}</p>
-                    </div>
-                    <div>
-                      <label className="text-slate-400 text-sm">Channel</label>
-                      <p className="text-white capitalize">{selectedTransaction.channel}</p>
-                    </div>
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="text-slate-400 text-sm">Description</label>
-                  <p className="text-white">{selectedTransaction.description}</p>
-                </div>
-                
-                <div>
-                  <label className="text-slate-400 text-sm">Date & Time</label>
-                  <p className="text-white">{formatDate(selectedTransaction.createdAt)}</p>
-                </div>
-
-                {selectedTransaction.status === 'pending' && (
-                  <div className="flex space-x-3 pt-4 border-t border-slate-700">
-                    <Button
-                      onClick={() => {
-                        handleTransactionAction(selectedTransaction.id, 'approve')
-                        setIsDetailsDialogOpen(false)
-                      }}
-                      disabled={updateTransactionMutation.isPending}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                    >
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      Approve Transaction
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        handleTransactionAction(selectedTransaction.id, 'reject')
-                        setIsDetailsDialogOpen(false)
-                      }}
-                      disabled={updateTransactionMutation.isPending}
-                      variant="destructive"
-                    >
-                      <XCircle className="w-4 h-4 mr-2" />
-                      Reject Transaction
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">
+              Page {currentPage} of {totalPages}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(currentPage - 1)}
+                disabled={currentPage === 1}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(currentPage + 1)}
+                disabled={currentPage === totalPages}
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </MerchantLayout>
   )
 }
 
-export default withRouteProtection(TransactionsPage, ['merchant'])
+export default withRouteProtection(CompanyTransactionsPage) 

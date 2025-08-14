@@ -6,21 +6,22 @@
 import { Redis } from '@upstash/redis'
 
 // Check if Redis credentials are available
-const REDIS_URL = process.env.NEXT_PUBLIC_UPSTASH_REDIS_REST_URL || 'https://apparent-gobbler-32856.upstash.io/'
-const REDIS_TOKEN = process.env.NEXT_PUBLIC_UPSTASH_REDIS_REST_TOKEN || 'AYBYAAIncDFkZDMzMDU2YTVmNzc0MmNmOTRlYzU0ODNkYWQ5ZmRkNnAxMzI4NTY'
+const REDIS_URL = process.env.NEXT_PUBLIC_UPSTASH_REDIS_REST_URL
+const REDIS_TOKEN = process.env.NEXT_PUBLIC_UPSTASH_REDIS_REST_TOKEN
 
 // Initialize Redis client with error handling
 let redis: Redis | null = null
 
-try {
-  if (REDIS_URL && REDIS_TOKEN && typeof window !== 'undefined') {
+// Only initialize Redis on the client side
+if (typeof window !== 'undefined' && REDIS_URL && REDIS_TOKEN) {
+  try {
     redis = new Redis({
       url: REDIS_URL,
       token: REDIS_TOKEN,
     })
+  } catch (error) {
+    console.warn('Redis initialization failed, falling back to localStorage:', error)
   }
-} catch (error) {
-  console.warn('Redis initialization failed, falling back to localStorage:', error)
 }
 
 export interface CacheOptions {
@@ -41,7 +42,14 @@ export class RedisService {
 
   constructor() {
     this.redis = redis
-    this.isRedisAvailable = !!redis
+    this.isRedisAvailable = !!redis && typeof window !== 'undefined'
+  }
+
+  /**
+   * Check if Redis is available
+   */
+  isAvailable(): boolean {
+    return this.isRedisAvailable
   }
 
   /**
@@ -102,8 +110,7 @@ export class RedisService {
 
           return entry.data
         } catch (parseError) {
-          console.warn('Failed to parse cached data, clearing cache entry:', parseError)
-          await this.redis.del(key)
+          console.error('Failed to parse cached data:', parseError)
           return null
         }
       } else {
@@ -112,18 +119,19 @@ export class RedisService {
       }
     } catch (error) {
       console.error('Redis get error:', error)
-      // Fallback to localStorage
+      // Fallback to localStorage if Redis fails
       return this.fallbackGet(key)
     }
   }
 
   /**
-   * Delete a key from cache
+   * Delete a value from cache
    */
   async del(key: string): Promise<void> {
     try {
       if (this.isRedisAvailable && this.redis) {
         await this.redis.del(key)
+        // Also remove tags
         await this.redis.del(`tags:${key}`)
       } else {
         // Fallback to localStorage
@@ -131,7 +139,7 @@ export class RedisService {
       }
     } catch (error) {
       console.error('Redis del error:', error)
-      // Fallback to localStorage
+      // Fallback to localStorage if Redis fails
       this.fallbackDel(key)
     }
   }
@@ -142,23 +150,20 @@ export class RedisService {
   async invalidateByTags(tags: string[]): Promise<void> {
     try {
       if (this.isRedisAvailable && this.redis) {
+        // Get all keys with matching tags
+        const keysToDelete: string[] = []
+        
         for (const tag of tags) {
-          const keys = await this.redis.keys(`*:${tag}:*`)
-          if (keys.length > 0) {
-            await this.redis.del(...keys)
-          }
+          const tagKeys = await this.redis.smembers(`tag:${tag}`)
+          keysToDelete.push(...tagKeys)
         }
-      } else {
-        // Fallback: clear all localStorage cache entries
-        if (typeof window !== 'undefined') {
-          const keysToDelete: string[] = []
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i)
-            if (key?.startsWith('redis:')) {
-              keysToDelete.push(key)
-            }
-          }
-          keysToDelete.forEach(key => localStorage.removeItem(key))
+
+        // Delete all keys and their tags
+        if (keysToDelete.length > 0) {
+          await Promise.all([
+            this.redis.del(...keysToDelete),
+            ...keysToDelete.map(key => this.redis.del(`tags:${key}`))
+          ])
         }
       }
     } catch (error) {
@@ -167,280 +172,103 @@ export class RedisService {
   }
 
   /**
-   * Set multiple values atomically
+   * Clear all cache
    */
-  async mset<T>(entries: Array<{ key: string; value: T; options?: CacheOptions }>): Promise<void> {
+  async clear(): Promise<void> {
     try {
       if (this.isRedisAvailable && this.redis) {
-        const pipeline = this.redis.pipeline()
-        
-        for (const { key, value, options = {} } of entries) {
-          const { ttl = 3600, tags = [] } = options
-          const entry: CacheEntry<T> = {
-            data: value,
-            timestamp: Date.now(),
-            ttl,
-            tags
-          }
-          
-          pipeline.set(key, JSON.stringify(entry), { ex: ttl })
-          
-          if (tags.length > 0) {
-            pipeline.sadd(`tags:${key}`, ...tags)
-          }
-        }
-        
-        await pipeline.exec()
-      } else {
-        // Fallback to individual sets
-        for (const entry of entries) {
-          await this.set(entry.key, entry.value, entry.options)
-        }
-      }
-    } catch (error) {
-      console.error('Redis mset error:', error)
-      // Fallback to individual sets
-      for (const entry of entries) {
-        await this.set(entry.key, entry.value, entry.options)
-      }
-    }
-  }
-
-  /**
-   * Get multiple values
-   */
-  async mget<T>(keys: string[]): Promise<Array<T | null>> {
-    try {
-      if (this.isRedisAvailable && this.redis) {
-        const cached = await this.redis.mget(...keys)
-        return cached.map(item => {
-          if (!item) return null
-          
-          try {
-            // Handle non-string responses
-            if (typeof item !== 'string') {
-              return item as T
-            }
-
-            const entry: CacheEntry<T> = JSON.parse(item)
-            
-            // Check if expired
-            if (Date.now() - entry.timestamp > entry.ttl * 1000) {
-              return null
-            }
-            
-            return entry.data
-          } catch {
-            return null
-          }
-        })
-      } else {
-        // Fallback to individual gets
-        return Promise.all(keys.map(key => this.get<T>(key)))
-      }
-    } catch (error) {
-      console.error('Redis mget error:', error)
-      // Fallback to individual gets
-      return Promise.all(keys.map(key => this.get<T>(key)))
-    }
-  }
-
-  /**
-   * Check if a key exists
-   */
-  async exists(key: string): Promise<boolean> {
-    try {
-      if (this.isRedisAvailable && this.redis) {
-        const result = await this.redis.exists(key)
-        return result === 1
-      } else {
-        // Fallback to localStorage
-        if (typeof window !== 'undefined') {
-          return localStorage.getItem(`redis:${key}`) !== null
-        }
-        return false
-      }
-    } catch (error) {
-      console.error('Redis exists error:', error)
-      return false
-    }
-  }
-
-  /**
-   * Get cache statistics
-   */
-  async getStats(): Promise<{
-    totalKeys: number
-    memoryUsage: string
-    hitRate: number
-  }> {
-    try {
-      if (this.isRedisAvailable && this.redis) {
-        const keys = await this.redis.dbsize()
-        
-        return {
-          totalKeys: keys || 0,
-          memoryUsage: 'N/A', // Upstash doesn't provide detailed memory info
-          hitRate: 0.95 // Estimated hit rate
-        }
-      } else {
-        // Fallback: count localStorage entries
-        let count = 0
-        if (typeof window !== 'undefined') {
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i)
-            if (key?.startsWith('redis:')) {
-              count++
-            }
-          }
-        }
-        
-        return {
-          totalKeys: count,
-          memoryUsage: 'localStorage',
-          hitRate: 0.8 // Estimated hit rate for localStorage
-        }
-      }
-    } catch (error) {
-      console.error('Redis stats error:', error)
-      return {
-        totalKeys: 0,
-        memoryUsage: 'N/A',
-        hitRate: 0
-      }
-    }
-  }
-
-  /**
-   * Clear all cache (use with caution)
-   */
-  async clearAll(): Promise<void> {
-    try {
-      if (this.isRedisAvailable && this.redis) {
+        // This is a destructive operation - use with caution
         await this.redis.flushdb()
       } else {
-        // Fallback: clear localStorage cache entries
-        if (typeof window !== 'undefined') {
-          const keysToDelete: string[] = []
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i)
-            if (key?.startsWith('redis:')) {
-              keysToDelete.push(key)
-            }
-          }
-          keysToDelete.forEach(key => localStorage.removeItem(key))
-        }
+        // Fallback to localStorage
+        this.fallbackClear()
       }
     } catch (error) {
-      console.error('Redis clearAll error:', error)
+      console.error('Redis clear error:', error)
+      // Fallback to localStorage if Redis fails
+      this.fallbackClear()
     }
   }
 
   // Fallback methods using localStorage
   private fallbackSet<T>(key: string, value: T, options: CacheOptions = {}): void {
     try {
-      if (typeof window === 'undefined') return
-
       const { ttl = 3600 } = options
       const entry: CacheEntry<T> = {
         data: value,
         timestamp: Date.now(),
-        ttl,
-        tags: options.tags
+        ttl
       }
-      
-      localStorage.setItem(`redis:${key}`, JSON.stringify(entry))
-      
-      // Set expiration
-      setTimeout(() => {
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem(`redis:${key}`)
-        }
-      }, ttl * 1000)
+      localStorage.setItem(key, JSON.stringify(entry))
     } catch (error) {
-      console.error('Fallback set error:', error)
+      console.error('localStorage set error:', error)
     }
   }
 
   private fallbackGet<T>(key: string): T | null {
     try {
-      if (typeof window === 'undefined') return null
-
-      const cached = localStorage.getItem(`redis:${key}`)
+      const cached = localStorage.getItem(key)
       if (!cached) return null
 
       const entry: CacheEntry<T> = JSON.parse(cached)
       
       // Check if expired
       if (Date.now() - entry.timestamp > entry.ttl * 1000) {
-        localStorage.removeItem(`redis:${key}`)
+        localStorage.removeItem(key)
         return null
       }
 
       return entry.data
     } catch (error) {
-      console.error('Fallback get error:', error)
-      // Clear corrupted entry
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(`redis:${key}`)
-      }
+      console.error('localStorage get error:', error)
       return null
     }
   }
 
   private fallbackDel(key: string): void {
     try {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(`redis:${key}`)
-      }
+      localStorage.removeItem(key)
     } catch (error) {
-      console.error('Fallback del error:', error)
+      console.error('localStorage del error:', error)
     }
   }
 
-  /**
-   * Check if Redis is available
-   */
-  isAvailable(): boolean {
-    return this.isRedisAvailable
+  private fallbackClear(): void {
+    try {
+      localStorage.clear()
+    } catch (error) {
+      console.error('localStorage clear error:', error)
+    }
   }
 }
 
 // Export singleton instance
 export const redisService = new RedisService()
 
-// Export utility functions for common cache patterns
+// Export cache utilities
 export const cacheUtils = {
-  // User-specific cache keys
-  userKey: (userId: string, resource: string) => `user:${userId}:${resource}`,
-  
-  // Company-specific cache keys
-  companyKey: (companyId: string, resource: string) => `company:${companyId}:${resource}`,
-  
-  // Global cache keys
-  globalKey: (resource: string) => `global:${resource}`,
-  
-  // Cache tags for invalidation
   tags: {
+    global: () => 'global',
     user: (userId: string) => `user:${userId}`,
     company: (companyId: string) => `company:${companyId}`,
-    global: () => 'global',
-    transactions: () => 'transactions',
-    employees: () => 'employees',
-    notifications: () => 'notifications'
+    transaction: (transactionId: string) => `transaction:${transactionId}`,
+    balance: (userId: string) => `balance:${userId}`,
+    notifications: (userId: string) => `notifications:${userId}`,
+    analytics: (companyId: string) => `analytics:${companyId}`,
   }
 }
 
 // Cache TTL constants
 export const CACHE_TTL = {
-  USER_SESSION: 1800, // 30 minutes
-  COMPANY_DATA: 3600, // 1 hour
-  TRANSACTIONS: 300,  // 5 minutes
-  EMPLOYEES: 1800,    // 30 minutes
-  NOTIFICATIONS: 600,  // 10 minutes
-  STATS: 300,         // 5 minutes
-  SETTINGS: 7200,     // 2 hours
-  PRICING: 3600,      // 1 hour
-  CURRENCY_RATES: 86400, // 24 hours
-  STATIC_CONTENT: 604800 // 7 days
+  SHORT: 300, // 5 minutes
+  MEDIUM: 1800, // 30 minutes
+  LONG: 3600, // 1 hour
+  STATIC_CONTENT: 86400, // 24 hours
+  CURRENCY_RATES: 3600, // 1 hour
+  USER_PROFILE: 1800, // 30 minutes
+  COMPANY_DATA: 1800, // 30 minutes
+  TRANSACTIONS: 300, // 5 minutes
+  BALANCES: 60, // 1 minute
+  NOTIFICATIONS: 300, // 5 minutes
+  ANALYTICS: 1800, // 30 minutes
 } as const 

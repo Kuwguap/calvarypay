@@ -23,6 +23,7 @@ export default function DashboardRedirect() {
     // If not authenticated, redirect to signin
     if (!isAuthenticated || !user) {
       console.log('📍 Dashboard Redirect: Not authenticated, redirecting to signin')
+      console.log('📍 Dashboard Redirect: Auth state:', { isAuthenticated, user: user?.userId })
       router.push('/auth/signin')
       return
     }

@@ -1,321 +1,475 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
-import { authService } from '@/lib/services/auth.service'
+import { supabaseService } from '@/lib/supabase'
+import { verifyPaymentAuth, verifyPaymentRole, createUnauthorizedResponse, createForbiddenResponse } from '@/lib/auth/payment-auth'
+import { EmployeeBalanceService } from '@/lib/services/employee-balance.service'
 
 export async function GET(request: NextRequest) {
   try {
-    // Get authorization header
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: { message: 'Authorization token required' } },
-        { status: 401 }
-      )
+    console.log('📊 Merchant Analytics API: Starting comprehensive analytics fetch...')
+
+    // Verify authentication
+    const authResult = await verifyPaymentAuth(request)
+    if (!authResult.success || !authResult.user) {
+      console.log('📊 Merchant Analytics API: Authentication failed:', authResult.error)
+      return createUnauthorizedResponse(authResult.error || 'Authentication failed')
     }
 
-    const token = authHeader.substring(7)
-    
-    // Verify token and get user
-    const user = await authService.verifyToken(token)
-    if (!user) {
-      return NextResponse.json(
-        { error: { message: 'Invalid or expired token' } },
-        { status: 401 }
-      )
+    // Verify user has permission to access analytics
+    if (!verifyPaymentRole(authResult.user, ['merchant', 'admin'])) {
+      console.log('📊 Merchant Analytics API: Insufficient permissions for user:', authResult.user.role)
+      return createForbiddenResponse('Only merchants and admins can access analytics data')
     }
 
-    // Only allow merchants to access this endpoint
-    if (user.role !== 'merchant') {
-      return NextResponse.json(
-        { error: { message: 'Access denied. Merchant role required.' } },
-        { status: 403 }
-      )
-    }
-
-    // Get query parameters
+    const { user } = authResult
     const { searchParams } = new URL(request.url)
     const days = parseInt(searchParams.get('days') || '30')
     const view = searchParams.get('view') || 'overview'
 
-    // Get merchant's company ID
-    const companyId = user.userId
+    console.log('📊 Merchant Analytics API: Fetching analytics for merchant:', user.userId, 'days:', days, 'view:', view)
 
-    // Calculate date ranges
-    const now = new Date()
-    const startDate = new Date()
-    startDate.setDate(now.getDate() - days)
-    
-    const previousStartDate = new Date()
-    previousStartDate.setDate(startDate.getDate() - days)
-
-    // Fetch all transactions for the company
-    const { data: allTransactions, error: transactionsError } = await supabase
-      .from('transactions')
+    // 1. Fetch employee transfers from database
+    const { data: employeeTransfers, error: transfersError } = await supabaseService.client
+      .from('employee_transfers')
       .select(`
-        *,
-        users!inner(
-          id,
-          first_name,
-          last_name,
-          email,
-          company_id,
-          metadata
-        )
+        id,
+        amount_minor,
+        currency,
+        status,
+        transfer_type,
+        created_at,
+        processed_at,
+        transfer_fee_minor,
+        net_amount_minor,
+        sender_id,
+        recipient_id,
+        metadata
       `)
-      .eq('users.company_id', companyId)
-      .gte('created_at', previousStartDate.toISOString())
+      .eq('sender_company_id', user.userId)
+      .gte('created_at', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString())
       .order('created_at', { ascending: false })
 
-    if (transactionsError) {
-      console.error('Transactions fetch error:', transactionsError)
-      return NextResponse.json(
-        { error: { message: 'Failed to fetch transactions' } },
-        { status: 500 }
-      )
+    if (transfersError) {
+      console.error('📊 Merchant Analytics API: Error fetching employee transfers:', transfersError)
+      return NextResponse.json({ error: 'Failed to fetch transfers' }, { status: 500 })
     }
 
-    // Fetch company employees
-    const { data: employees, error: employeesError } = await supabase
-      .from('users')
-      .select('id, first_name, last_name, email, is_active, last_login, metadata')
-      .eq('company_id', companyId)
+    // 2. Get employee details for sender/recipient
+    const allUserIds = new Set<string>()
+    if (employeeTransfers) {
+      employeeTransfers.forEach(transfer => {
+        if (transfer.sender_id) allUserIds.add(transfer.sender_id)
+        if (transfer.recipient_id) allUserIds.add(transfer.recipient_id)
+      })
+    }
+
+    let userDetails: any[] = []
+    if (allUserIds.size > 0) {
+      const { data: users, error: usersError } = await supabaseService.client
+        .from('calvary_users')
+        .select('id, first_name, last_name, email, role, department')
+        .in('id', Array.from(allUserIds))
+
+      if (usersError) {
+        console.error('📊 Merchant Analytics API: Error fetching user details:', usersError)
+      } else {
+        userDetails = users || []
+      }
+    }
+
+    // 3. Get company employees for active count
+    const { data: companyEmployees, error: employeesError } = await supabaseService.client
+      .from('calvary_users')
+      .select('id, is_active')
       .eq('role', 'employee')
 
     if (employeesError) {
-      console.error('Employees fetch error:', employeesError)
-      return NextResponse.json(
-        { error: { message: 'Failed to fetch employees' } },
-        { status: 500 }
-      )
+      console.error('📊 Merchant Analytics API: Error fetching employees:', employeesError)
     }
 
-    // Filter transactions by date ranges
-    const currentPeriodTransactions = allTransactions.filter(t => 
-      new Date(t.created_at) >= startDate
-    )
-    const previousPeriodTransactions = allTransactions.filter(t => {
-      const date = new Date(t.created_at)
-      return date >= previousStartDate && date < startDate
+    // 4. Calculate comprehensive analytics based on available data
+    const analytics = calculateAnalyticsFromTransfers(employeeTransfers, userDetails, companyEmployees, days)
+
+    console.log('📊 Merchant Analytics API: Analytics calculated:', {
+      totalTransactions: analytics.overview.totalTransactions,
+      totalRevenue: analytics.overview.totalRevenue,
+      totalTransferVolume: analytics.overview.totalTransferVolume,
+      activeEmployees: analytics.overview.activeEmployees,
+      trendsDataPoints: analytics.trends.daily.length,
+      breakdownCategories: analytics.breakdown.byStatus.length
     })
 
-    // Calculate overview metrics
-    const totalRevenue = currentPeriodTransactions.reduce((sum, t) => sum + (t.amount || 0), 0)
-    const totalTransactions = currentPeriodTransactions.length
-    const averageTransactionValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0
-    const activeEmployees = employees.filter(emp => emp.is_active).length
-
-    // Calculate growth rate
-    const previousRevenue = previousPeriodTransactions.reduce((sum, t) => sum + (t.amount || 0), 0)
-    const growthRate = previousRevenue > 0 ? ((totalRevenue - previousRevenue) / previousRevenue) * 100 : 0
-
-    // Calculate conversion rate (successful transactions / total transactions)
-    const successfulTransactions = currentPeriodTransactions.filter(t => 
-      ['completed', 'success'].includes(t.status)
-    ).length
-    const conversionRate = totalTransactions > 0 ? (successfulTransactions / totalTransactions) * 100 : 0
-
-    // Calculate category breakdown
-    const categoryMap = new Map<string, { amount: number; count: number }>()
-    const previousCategoryMap = new Map<string, { amount: number; count: number }>()
-
-    currentPeriodTransactions.forEach(transaction => {
-      const category = transaction.metadata?.category || 'other'
-      const existing = categoryMap.get(category) || { amount: 0, count: 0 }
-      categoryMap.set(category, {
-        amount: existing.amount + (transaction.amount || 0),
-        count: existing.count + 1
-      })
-    })
-
-    previousPeriodTransactions.forEach(transaction => {
-      const category = transaction.metadata?.category || 'other'
-      const existing = previousCategoryMap.get(category) || { amount: 0, count: 0 }
-      previousCategoryMap.set(category, {
-        amount: existing.amount + (transaction.amount || 0),
-        count: existing.count + 1
-      })
-    })
-
-    const categories = Array.from(categoryMap.entries()).map(([category, data]) => {
-      const previousData = previousCategoryMap.get(category) || { amount: 0, count: 0 }
-      const growth = previousData.amount > 0 ? ((data.amount - previousData.amount) / previousData.amount) * 100 : 0
-      
-      return {
-        category,
-        amount: data.amount,
-        count: data.count,
-        percentage: totalRevenue > 0 ? (data.amount / totalRevenue) * 100 : 0,
-        growth
-      }
-    }).sort((a, b) => b.amount - a.amount)
-
-    // Calculate employee performance
-    const employeePerformance = employees.map(employee => {
-      const employeeTransactions = currentPeriodTransactions.filter(t => t.users.id === employee.id)
-      const totalSpent = employeeTransactions.reduce((sum, t) => sum + (t.amount || 0), 0)
-      const transactionCount = employeeTransactions.length
-      
-      // Calculate efficiency (successful transactions / total transactions)
-      const successfulCount = employeeTransactions.filter(t => 
-        ['completed', 'success'].includes(t.status)
-      ).length
-      const efficiency = transactionCount > 0 ? (successfulCount / transactionCount) * 100 : 0
-
-      return {
-        id: employee.id,
-        name: `${employee.first_name} ${employee.last_name}`,
-        department: employee.metadata?.department || 'Unassigned',
-        totalSpent,
-        transactionCount,
-        efficiency,
-        lastActive: employee.last_login
-      }
-    }).sort((a, b) => b.totalSpent - a.totalSpent)
-
-    // Calculate department analytics
-    const departmentMap = new Map<string, {
-      employees: number
-      totalSpent: number
-      transactionCount: number
-      categories: Map<string, number>
-    }>()
-
-    employees.forEach(employee => {
-      const department = employee.metadata?.department || 'Unassigned'
-      const employeeTransactions = currentPeriodTransactions.filter(t => t.users.id === employee.id)
-      const totalSpent = employeeTransactions.reduce((sum, t) => sum + (t.amount || 0), 0)
-      
-      const existing = departmentMap.get(department) || {
-        employees: 0,
-        totalSpent: 0,
-        transactionCount: 0,
-        categories: new Map()
-      }
-
-      existing.employees += 1
-      existing.totalSpent += totalSpent
-      existing.transactionCount += employeeTransactions.length
-
-      employeeTransactions.forEach(t => {
-        const category = t.metadata?.category || 'other'
-        const categoryAmount = existing.categories.get(category) || 0
-        existing.categories.set(category, categoryAmount + (t.amount || 0))
-      })
-
-      departmentMap.set(department, existing)
-    })
-
-    const departments = Array.from(departmentMap.entries()).map(([name, data]) => ({
-      name,
-      budget: 50000, // Default budget - in real app, this would come from settings
-      spent: data.totalSpent,
-      employees: data.employees,
-      efficiency: data.transactionCount > 0 ? 85 : 0, // Simplified efficiency calculation
-      topCategories: Array.from(data.categories.entries())
-        .map(([category, amount]) => ({ category, amount }))
-        .sort((a, b) => b.amount - a.amount)
-        .slice(0, 3)
-    }))
-
-    // Generate AI insights
-    const insights = []
-
-    // Revenue insight
-    if (growthRate > 10) {
-      insights.push({
-        type: 'positive' as const,
-        title: 'Strong Revenue Growth',
-        description: `Your revenue has grown by ${growthRate.toFixed(1)}% compared to the previous period. Keep up the excellent work!`,
-        trend: growthRate
-      })
-    } else if (growthRate < -5) {
-      insights.push({
-        type: 'negative' as const,
-        title: 'Revenue Decline',
-        description: `Revenue has decreased by ${Math.abs(growthRate).toFixed(1)}%. Consider reviewing spending patterns and employee efficiency.`,
-        trend: growthRate
-      })
-    }
-
-    // Top category insight
-    if (categories.length > 0) {
-      const topCategory = categories[0]
-      insights.push({
-        type: 'neutral' as const,
-        title: 'Top Spending Category',
-        description: `${topCategory.category} accounts for ${topCategory.percentage.toFixed(1)}% of total spending with ${topCategory.count} transactions.`,
-        value: `${topCategory.percentage.toFixed(1)}%`
-      })
-    }
-
-    // Employee efficiency insight
-    const avgEfficiency = employeePerformance.reduce((sum, emp) => sum + emp.efficiency, 0) / employeePerformance.length
-    if (avgEfficiency > 90) {
-      insights.push({
-        type: 'positive' as const,
-        title: 'High Team Efficiency',
-        description: `Your team maintains an excellent ${avgEfficiency.toFixed(1)}% success rate on transactions.`,
-        value: `${avgEfficiency.toFixed(1)}%`
-      })
-    }
-
-    // Transaction volume insight
-    if (totalTransactions > previousPeriodTransactions.length) {
-      const volumeGrowth = ((totalTransactions - previousPeriodTransactions.length) / previousPeriodTransactions.length) * 100
-      insights.push({
-        type: 'positive' as const,
-        title: 'Increased Activity',
-        description: `Transaction volume increased by ${volumeGrowth.toFixed(1)}%, indicating higher business activity.`,
-        trend: volumeGrowth
-      })
-    }
-
-    // Prepare response data
-    const analyticsData = {
-      overview: {
-        totalRevenue,
-        totalTransactions,
-        averageTransactionValue,
-        activeEmployees,
-        growthRate,
-        conversionRate
-      },
-      trends: {
-        daily: [], // Could be implemented for detailed view
-        weekly: [], // Could be implemented for detailed view
-        monthly: [] // Could be implemented for detailed view
-      },
-      categories: categories.slice(0, 10), // Top 10 categories
-      employees: employeePerformance.slice(0, 10), // Top 10 employees
-      departments,
-      insights
-    }
-
-    // Log the analytics access
-    await supabase
-      .from('audit_logs')
-      .insert({
-        user_id: user.userId,
-        action: 'analytics_accessed',
-        resource_type: 'analytics',
-        resource_id: 'merchant_analytics',
-        details: {
-          view,
-          dateRange: days,
-          companyId,
-          transactionCount: totalTransactions
-        }
-      })
-
-    return NextResponse.json(analyticsData)
+    // Return comprehensive analytics data
+    return NextResponse.json(analytics)
 
   } catch (error) {
-    console.error('Merchant analytics error:', error)
+    console.error('📊 Merchant Analytics API: Failed to fetch analytics:', error)
     return NextResponse.json(
-      { error: { message: 'Internal server error' } },
+      {
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to fetch analytics data'
+        }
+      },
       { status: 500 }
     )
   }
+}
+
+function calculateAnalytics(employeeTransfers: any[], userDetails: any[], localTransactions: any[], days: number) {
+  const now = new Date()
+  const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
+
+  // Overview calculations
+  const totalTransactions = (employeeTransfers?.length || 0) + localTransactions.length
+  const totalRevenue = calculateTotalRevenue(employeeTransfers, localTransactions)
+  const totalTransferVolume = calculateTotalTransferVolume(employeeTransfers)
+  const totalFeesCollected = calculateTotalFees(employeeTransfers)
+  const activeEmployees = new Set([
+    ...(employeeTransfers?.map(t => t.sender_id) || []),
+    ...(employeeTransfers?.map(t => t.recipient_id) || [])
+  ]).size
+
+  // Calculate success rate
+  const completedTransactions = (employeeTransfers || []).filter(t => t.status === 'completed').length
+  const successRate = totalTransactions > 0 ? (completedTransactions / totalTransactions) * 100 : 0
+
+  // Calculate average transaction amount
+  const averageTransactionAmount = totalTransactions > 0 ? totalTransferVolume / totalTransactions : 0
+
+  // Calculate monthly growth (simplified)
+  const currentMonth = now.getMonth()
+  const currentYear = now.getFullYear()
+  const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1
+  const previousYear = currentMonth === 0 ? currentYear - 1 : currentYear
+
+  const currentMonthTransactions = (employeeTransfers || []).filter(t => {
+    const txDate = new Date(t.created_at)
+    return txDate.getMonth() === currentMonth && txDate.getFullYear() === currentYear
+  })
+
+  const previousMonthTransactions = (employeeTransfers || []).filter(t => {
+    const txDate = new Date(t.created_at)
+    return txDate.getMonth() === previousMonth && txDate.getFullYear() === previousYear
+  })
+
+  const currentMonthVolume = currentMonthTransactions.reduce((sum, t) => sum + (t.amount_minor / 100), 0)
+  const previousMonthVolume = previousMonthTransactions.reduce((sum, t) => sum + (t.amount_minor / 100), 0)
+  const monthlyGrowth = previousMonthVolume > 0 ? ((currentMonthVolume - previousMonthVolume) / previousMonthVolume) * 100 : 0
+
+  // Trends calculations
+  const trends = calculateTrends(employeeTransfers, localTransactions, startDate, now)
+
+  // Breakdown calculations
+  const breakdown = calculateBreakdown(employeeTransfers, userDetails, localTransactions)
+
+  // Performance calculations
+  const performance = calculatePerformance(employeeTransfers, userDetails, localTransactions)
+
+  return {
+    overview: {
+      totalTransactions,
+      totalRevenue,
+      totalTransferVolume,
+      totalFeesCollected,
+      activeEmployees,
+      successRate,
+      averageTransactionAmount,
+      monthlyGrowth
+    },
+    trends,
+    breakdown,
+    performance
+  }
+}
+
+function calculateTotalRevenue(employeeTransfers: any[], localTransactions: any[]): number {
+  let revenue = 0
+
+  // From database transfers
+  if (employeeTransfers) {
+    employeeTransfers.forEach(transfer => {
+      if (transfer.status === 'completed') {
+        revenue += transfer.amount_minor / 100
+      }
+    })
+  }
+
+  // From local transactions
+  localTransactions.forEach(tx => {
+    if (tx.type === 'budget_allocation' && tx.status === 'completed') {
+      revenue += Math.abs(tx.amount)
+    }
+  })
+
+  return revenue
+}
+
+function calculateTotalTransferVolume(employeeTransfers: any[]): number {
+  if (!employeeTransfers) return 0
+  
+  return employeeTransfers.reduce((sum, transfer) => {
+    return sum + ((transfer.amount_minor || 0) / 100) // Convert from minor units
+  }, 0)
+}
+
+function calculateTotalFees(employeeTransfers: any[]): number {
+  if (!employeeTransfers) return 0
+  
+  return employeeTransfers.reduce((sum, transfer) => {
+    return sum + ((transfer.transfer_fee_minor || 0) / 100) // Convert from minor units
+  }, 0)
+}
+
+function calculateTrends(employeeTransfers: any[], localTransactions: any[], startDate: Date, endDate: Date) {
+  const daily: Array<{ date: string; amount: number; count: number }> = []
+  const weekly: Array<{ week: string; amount: number; count: number }> = []
+  const monthly: Array<{ month: string; amount: number; count: number }> = []
+
+  // Generate date ranges
+  const currentDate = new Date(startDate)
+  while (currentDate <= endDate) {
+    const dateStr = currentDate.toISOString().split('T')[0]
+    const weekStr = getWeekString(currentDate)
+    const monthStr = currentDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+
+    // Calculate daily data
+    const dailyTransactions = (employeeTransfers || []).filter(t => {
+      const txDate = new Date(t.created_at).toISOString().split('T')[0]
+      return txDate === dateStr
+    })
+
+    const dailyAmount = dailyTransactions.reduce((sum, t) => sum + ((t.amount_minor || 0) / 100), 0)
+    daily.push({
+      date: dateStr,
+      amount: dailyAmount,
+      count: dailyTransactions.length
+    })
+
+    // Calculate weekly data
+    const weekStart = getWeekStart(currentDate)
+    const weekEnd = getWeekEnd(currentDate)
+    const weeklyTransactions = (employeeTransfers || []).filter(t => {
+      const txDate = new Date(t.created_at)
+      return txDate >= weekStart && txDate <= weekEnd
+    })
+
+    const weeklyAmount = weeklyTransactions.reduce((sum, t) => sum + ((t.amount_minor || 0) / 100), 0)
+    weekly.push({
+      week: weekStr,
+      amount: weeklyAmount,
+      count: weeklyTransactions.length
+    })
+
+    // Calculate monthly data
+    const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
+    const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
+    const monthlyTransactions = (employeeTransfers || []).filter(t => {
+      const txDate = new Date(t.created_at)
+      return txDate >= monthStart && txDate <= monthEnd
+    })
+
+    const monthlyAmount = monthlyTransactions.reduce((sum, t) => sum + ((t.amount_minor || 0) / 100), 0)
+    monthly.push({
+      month: monthStr,
+      amount: monthlyAmount,
+      count: monthlyTransactions.length
+    })
+
+    currentDate.setDate(currentDate.getDate() + 1)
+  }
+
+  return { daily, weekly, monthly }
+}
+
+function calculateBreakdown(employeeTransfers: any[], userDetails: any[], localTransactions: any[]) {
+  // Status breakdown
+  const byStatus = new Map<string, { count: number; amount: number }>()
+  if (employeeTransfers) {
+    employeeTransfers.forEach(transfer => {
+      const status = transfer.status
+      const amount = (transfer.amount_minor || 0) / 100 // Convert from minor units
+      
+      if (!byStatus.has(status)) {
+        byStatus.set(status, { count: 0, amount: 0 })
+      }
+      
+      const current = byStatus.get(status)!
+      current.count++
+      current.amount += amount
+    })
+  }
+
+  // Type breakdown
+  const byType = new Map<string, { count: number; amount: number }>()
+  if (employeeTransfers) {
+    employeeTransfers.forEach(transfer => {
+      const type = transfer.transfer_type
+      const amount = transfer.amount_minor / 100
+      
+      if (!byType.has(type)) {
+        byType.set(type, { count: 0, amount: 0 })
+      }
+      
+      const current = byType.get(type)!
+      current.count++
+      current.amount += amount
+    })
+  }
+
+  // Employee breakdown
+  const byEmployee = new Map<string, { count: number; amount: number }>()
+  if (employeeTransfers) {
+    employeeTransfers.forEach(transfer => {
+      const sender = userDetails.find(u => u.id === transfer.sender_id)
+      const recipient = userDetails.find(u => u.id === transfer.recipient_id)
+      
+      if (sender) {
+        const employeeName = `${sender.first_name} ${sender.last_name}`
+        if (!byEmployee.has(employeeName)) {
+          byEmployee.set(employeeName, { count: 0, amount: 0 })
+        }
+        
+        const current = byEmployee.get(employeeName)!
+        current.count++
+        current.amount += transfer.amount_minor / 100
+      }
+    })
+  }
+
+  // Category breakdown
+  const byCategory = new Map<string, { count: number; amount: number }>()
+  if (employeeTransfers) {
+    employeeTransfers.forEach(transfer => {
+      const category = transfer.metadata?.category || 'transfer'
+      const amount = transfer.amount_minor / 100
+      
+      if (!byCategory.has(category)) {
+        byCategory.set(category, { count: 0, amount: 0 })
+      }
+      
+      const current = byCategory.get(category)!
+      current.count++
+      current.amount += amount
+    })
+  }
+
+  return {
+    byStatus: Array.from(byStatus.entries()).map(([status, data]) => ({
+      status,
+      count: data.count,
+      amount: data.amount
+    })),
+    byType: Array.from(byType.entries()).map(([type, data]) => ({
+      type,
+      count: data.count,
+      amount: data.amount
+    })),
+    byEmployee: Array.from(byEmployee.entries()).map(([employee, data]) => ({
+      employee,
+      count: data.count,
+      amount: data.amount
+    })).sort((a, b) => b.amount - a.amount).slice(0, 10),
+    byCategory: Array.from(byCategory.entries()).map(([category, data]) => ({
+      category,
+      count: data.count,
+      amount: data.amount
+    }))
+  }
+}
+
+function calculatePerformance(employeeTransfers: any[], userDetails: any[], localTransactions: any[]) {
+  // Top performers
+  const employeeStats = new Map<string, { transactions: number; amount: number; successCount: number }>()
+  
+  if (employeeTransfers) {
+    employeeTransfers.forEach(transfer => {
+      const sender = userDetails.find(u => u.id === transfer.sender_id)
+      if (sender) {
+        const employeeName = `${sender.first_name} ${sender.last_name}`
+        
+        if (!employeeStats.has(employeeName)) {
+          employeeStats.set(employeeName, { transactions: 0, amount: 0, successCount: 0 })
+        }
+        
+        const current = employeeStats.get(employeeName)!
+        current.transactions++
+        current.amount += transfer.amount_minor / 100
+        if (transfer.status === 'completed') {
+          current.successCount++
+        }
+      }
+    })
+  }
+
+  const topPerformers = Array.from(employeeStats.entries())
+    .map(([employee, stats]) => ({
+      employee,
+      transactions: stats.transactions,
+      amount: stats.amount,
+      successRate: stats.transactions > 0 ? (stats.successCount / stats.transactions) * 100 : 0
+    }))
+    .sort((a, b) => b.successRate - a.successRate)
+    .slice(0, 5)
+
+  // Risk metrics
+  const failedTransactions = (employeeTransfers || []).filter(t => t.status === 'failed').length
+  const pendingTransactions = (employeeTransfers || []).filter(t => t.status === 'pending').length
+  
+  // Calculate average processing time
+  let totalProcessingTime = 0
+  let completedCount = 0
+  
+  if (employeeTransfers) {
+    employeeTransfers.forEach(transfer => {
+      if (transfer.status === 'completed' && transfer.processed_at && transfer.created_at) {
+        const created = new Date(transfer.created_at)
+        const processed = new Date(transfer.processed_at)
+        totalProcessingTime += processed.getTime() - created.getTime()
+        completedCount++
+      }
+    })
+  }
+  
+  const averageProcessingTime = completedCount > 0 ? totalProcessingTime / completedCount / (1000 * 60 * 60) : 0
+
+  // Calculate compliance score
+  const totalTransactions = (employeeTransfers?.length || 0) + localTransactions.length
+  const complianceScore = totalTransactions > 0 ? 
+    Math.max(0, 100 - (failedTransactions * 5) - (pendingTransactions * 2)) : 100
+
+  // Determine risk level
+  let riskLevel = 'Low'
+  if (complianceScore < 70) riskLevel = 'High'
+  else if (complianceScore < 85) riskLevel = 'Medium'
+
+  return {
+    topPerformers,
+    riskMetrics: {
+      failedTransactions,
+      pendingTransactions,
+      averageProcessingTime,
+      complianceScore
+    }
+  }
+}
+
+function getWeekString(date: Date): string {
+  const startOfWeek = getWeekStart(date)
+  const endOfWeek = getWeekEnd(date)
+  return `${startOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+}
+
+function getWeekStart(date: Date): Date {
+  const d = new Date(date)
+  const day = d.getDay()
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1)
+  return new Date(d.setDate(diff))
+}
+
+function getWeekEnd(date: Date): Date {
+  const d = new Date(date)
+  const day = d.getDay()
+  const diff = d.getDate() - day + (day === 0 ? 0 : 7)
+  return new Date(d.setDate(diff))
 }
 
 export async function POST(request: NextRequest) {
